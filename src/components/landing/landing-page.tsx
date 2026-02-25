@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Cormorant_Garamond, Nunito, Inter } from "next/font/google";
+import { Nunito, Inter } from "next/font/google";
 import {
   motion,
   useScroll,
@@ -30,15 +30,6 @@ import {
 import { useTranslations } from "next-intl";
 import { useUserStore } from "@/stores/user-store";
 import { useLocaleStore, type Locale } from "@/stores/locale-store";
-
-/* ── Elegant Latin serif for section headings ──────────────────── */
-const cormorant = Cormorant_Garamond({
-  subsets: ["latin"],
-  style: ["normal", "italic"],
-  weight: ["300", "400", "500", "600", "700"],
-  display: "swap",
-  variable: "--font-cormorant",
-});
 
 /* ── Rounded bubbly sans for brand name (anime/manga feel) ──── */
 const nunito = Nunito({
@@ -234,7 +225,7 @@ function TranslationShowcase() {
   }, [isAutoPlaying]);
 
   const panelContent = [
-    // Tab 0: Original + OCR — manga layout with speech bubbles integrated into panels
+    // Tab 0: OCR — manga layout with speech bubbles integrated into panels
     <div key="ocr" className="relative h-full w-full">
       <div className="absolute inset-3 flex flex-col gap-1.5 md:inset-4">
         {/* Top panel — main scene with bubbles */}
@@ -735,7 +726,7 @@ export function LandingPage() {
 
   return (
     <div
-      className={`relative min-h-screen overflow-x-hidden bg-background ${cormorant.variable} ${nunito.variable} ${inter.variable}`}
+      className={`relative min-h-screen overflow-x-hidden bg-background ${nunito.variable} ${inter.variable}`}
       style={{ scrollBehavior: "smooth" }}
     >
       {/* ═══════════════════════ NAV ═══════════════════════ */}
@@ -1020,8 +1011,7 @@ export function LandingPage() {
             className="text-center"
           >
             <h2
-              className={`mb-2 text-3xl font-bold tracking-tight text-on-surface md:text-4xl ${cormorant.className}`}
-              style={{ fontStyle: "italic" }}
+              className={`mb-2 text-3xl font-bold tracking-tight text-on-surface md:text-4xl ${inter.className}`}
             >
               {t("video.heading")}
             </h2>
@@ -1236,8 +1226,7 @@ export function LandingPage() {
               {t("showcase.label")}
             </span>
             <h2
-              className={`mb-4 text-3xl font-bold tracking-tight text-on-surface md:text-4xl ${cormorant.className}`}
-              style={{ fontStyle: "italic" }}
+              className={`mb-4 text-3xl font-bold tracking-tight text-on-surface md:text-4xl ${inter.className}`}
             >
               {t("showcase.heading")}
             </h2>
@@ -1274,8 +1263,7 @@ export function LandingPage() {
               {t("features.label")}
             </span>
             <h2
-              className={`mb-4 text-3xl font-bold tracking-tight text-on-surface md:text-4xl ${cormorant.className}`}
-              style={{ fontStyle: "italic" }}
+              className={`mb-4 text-3xl font-bold tracking-tight text-on-surface md:text-4xl ${inter.className}`}
             >
               {t("features.heading")}
             </h2>
@@ -1368,8 +1356,7 @@ export function LandingPage() {
               {t("workflow.label")}
             </span>
             <h2
-              className={`mb-3 text-3xl font-bold tracking-tight text-on-surface md:text-4xl ${cormorant.className}`}
-              style={{ fontStyle: "italic" }}
+              className={`mb-3 text-3xl font-bold tracking-tight text-on-surface md:text-4xl ${inter.className}`}
             >
               {t("workflow.heading")}
             </h2>
@@ -1381,8 +1368,8 @@ export function LandingPage() {
           {/* Desktop — Zigzag timeline with alternating cards */}
           <div className="hidden md:block">
             <div className="relative">
-              {/* Central vertical connector */}
-              <div className="pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2">
+              {/* Central vertical connector — stops at end node center */}
+              <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2" style={{ bottom: 'calc(1rem + 1rem + 1.75rem)' }}>
                 <div className="h-full w-px bg-gradient-to-b from-indigo-500/25 via-violet-500/15 to-emerald-500/25" />
                 <motion.div
                   className="absolute top-0 left-1/2 h-24 w-[2px] -translate-x-1/2 rounded-full bg-gradient-to-b from-primary/0 via-primary/60 to-primary/0"
@@ -1487,7 +1474,8 @@ export function LandingPage() {
           {/* Mobile — stacked cards */}
           <div className="md:hidden">
             <div className="relative space-y-6">
-              <div className="absolute top-0 bottom-0 left-8 w-px bg-gradient-to-b from-indigo-500/30 via-violet-500/15 to-emerald-500/30" />
+              {/* Mobile vertical line — stops at end node center */}
+              <div className="absolute top-0 left-8 w-px bg-gradient-to-b from-indigo-500/30 via-violet-500/15 to-emerald-500/30" style={{ bottom: '15px' }} />
 
               {workflowSteps.map((step, i) => (
                 <motion.div
@@ -1610,8 +1598,7 @@ export function LandingPage() {
                 </span>
               </div>
               <h3
-                className={`mb-3 text-2xl font-bold text-on-surface md:text-3xl ${cormorant.className}`}
-                style={{ fontStyle: "italic" }}
+                className={`mb-3 text-2xl font-bold text-on-surface md:text-3xl ${inter.className}`}
               >
                 {t("community.heading")}
               </h3>
@@ -1665,8 +1652,7 @@ export function LandingPage() {
             <GlassesLogo className="h-8 w-8 text-primary" />
           </motion.div>
           <h2
-            className={`mb-4 text-3xl font-bold tracking-tight text-on-surface md:text-5xl ${cormorant.className}`}
-            style={{ fontStyle: "italic" }}
+            className={`mb-4 text-3xl font-bold tracking-tight text-on-surface md:text-5xl ${inter.className}`}
           >
             {t("cta.heading")}
           </h2>
@@ -1743,8 +1729,7 @@ export function LandingPage() {
 
               <div className="px-6 pt-10 pb-6">
                 <h2
-                  className={`mb-1 text-xl font-bold text-on-surface ${cormorant.className}`}
-                  style={{ fontStyle: "italic" }}
+                  className={`mb-1 text-xl font-bold text-on-surface ${inter.className}`}
                 >
                   {t("login.heading")}
                 </h2>
