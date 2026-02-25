@@ -1,26 +1,228 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* === Fonts === */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* === Radius === */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+
+  /* === Shadcn Standard Color Mappings === */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* === MD3 Extended Color Tokens === */
+  --color-surface: var(--surface);
+  --color-on-surface: var(--on-surface);
+  --color-surface-variant: var(--surface-variant);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-primary-container: var(--primary-container);
+  --color-on-primary-container: var(--on-primary-container);
+  --color-secondary-container: var(--secondary-container);
+  --color-on-secondary-container: var(--on-secondary-container);
+  --color-tertiary: var(--tertiary);
+  --color-on-tertiary: var(--on-tertiary);
+  --color-tertiary-container: var(--tertiary-container);
+  --color-on-tertiary-container: var(--on-tertiary-container);
+  --color-error-container: var(--error-container);
+  --color-on-error: var(--on-error);
+  --color-on-error-container: var(--on-error-container);
+  --color-md3-outline: var(--md3-outline);
+  --color-outline-variant: var(--outline-variant);
+  --color-inverse-surface: var(--inverse-surface);
+  --color-inverse-on-surface: var(--inverse-on-surface);
+  --color-inverse-primary: var(--inverse-primary);
+  --color-scrim: var(--scrim);
+  --color-shadow-color: var(--shadow-color);
+  --color-elevation-1: var(--elevation-1);
+  --color-elevation-2: var(--elevation-2);
+  --color-elevation-3: var(--elevation-3);
+
+  /* === Chart Colors === */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* =================================================================
+   DEFAULT THEME: #303F9F (Indigo) — Light Mode
+   ================================================================= */
+:root {
+  --radius: 0.625rem;
+
+  /* Shadcn ↔ MD3 Mapped */
+  --background: rgb(255, 251, 255);
+  --foreground: rgb(27, 27, 31);
+  --primary: rgb(71, 85, 182);
+  --primary-foreground: rgb(255, 255, 255);
+  --secondary: rgb(91, 93, 114);
+  --secondary-foreground: rgb(255, 255, 255);
+  --muted: rgb(227, 225, 236);
+  --muted-foreground: rgb(70, 70, 79);
+  --accent: rgb(223, 224, 255);
+  --accent-foreground: rgb(0, 13, 95);
+  --destructive: rgb(186, 26, 26);
+  --destructive-foreground: rgb(255, 255, 255);
+  --card: rgb(255, 251, 255);
+  --card-foreground: rgb(27, 27, 31);
+  --popover: rgb(255, 251, 255);
+  --popover-foreground: rgb(27, 27, 31);
+  --border: rgb(199, 197, 208);
+  --input: rgb(199, 197, 208);
+  --ring: rgb(71, 85, 182);
+
+  /* MD3 Extended Tokens */
+  --surface: rgb(255, 251, 255);
+  --on-surface: rgb(27, 27, 31);
+  --surface-variant: rgb(227, 225, 236);
+  --on-surface-variant: rgb(70, 70, 79);
+  --primary-container: rgb(223, 224, 255);
+  --on-primary-container: rgb(0, 13, 95);
+  --secondary-container: rgb(224, 225, 249);
+  --on-secondary-container: rgb(24, 26, 44);
+  --tertiary: rgb(119, 83, 108);
+  --on-tertiary: rgb(255, 255, 255);
+  --tertiary-container: rgb(255, 215, 240);
+  --on-tertiary-container: rgb(45, 18, 39);
+  --error-container: rgb(255, 218, 214);
+  --on-error: rgb(255, 255, 255);
+  --on-error-container: rgb(65, 0, 2);
+  --md3-outline: rgb(118, 118, 128);
+  --outline-variant: rgb(199, 197, 208);
+  --inverse-surface: rgb(48, 48, 52);
+  --inverse-on-surface: rgb(243, 240, 244);
+  --inverse-primary: rgb(187, 195, 255);
+  --scrim: rgb(0, 0, 0);
+  --shadow-color: rgb(0, 0, 0);
+  --elevation-1: rgb(244, 240, 250);
+  --elevation-2: rgb(238, 234, 247);
+  --elevation-3: rgb(232, 229, 245);
+
+  /* Chart */
+  --chart-1: rgb(71, 85, 182);
+  --chart-2: rgb(91, 93, 114);
+  --chart-3: rgb(119, 83, 108);
+  --chart-4: rgb(187, 195, 255);
+  --chart-5: rgb(186, 26, 26);
+}
+
+/* =================================================================
+   DEFAULT THEME: #303F9F (Indigo) — Dark Mode
+   ================================================================= */
+.dark {
+  --background: rgb(27, 27, 31);
+  --foreground: rgb(228, 225, 230);
+  --primary: rgb(187, 195, 255);
+  --primary-foreground: rgb(17, 34, 134);
+  --secondary: rgb(196, 197, 221);
+  --secondary-foreground: rgb(45, 47, 66);
+  --muted: rgb(70, 70, 79);
+  --muted-foreground: rgb(199, 197, 208);
+  --accent: rgb(45, 60, 156);
+  --accent-foreground: rgb(223, 224, 255);
+  --destructive: rgb(255, 180, 171);
+  --destructive-foreground: rgb(105, 0, 5);
+  --card: rgb(34, 35, 42);
+  --card-foreground: rgb(228, 225, 230);
+  --popover: rgb(34, 35, 42);
+  --popover-foreground: rgb(228, 225, 230);
+  --border: rgb(70, 70, 79);
+  --input: rgb(70, 70, 79);
+  --ring: rgb(187, 195, 255);
+
+  /* MD3 Extended Tokens */
+  --surface: rgb(27, 27, 31);
+  --on-surface: rgb(228, 225, 230);
+  --surface-variant: rgb(70, 70, 79);
+  --on-surface-variant: rgb(199, 197, 208);
+  --primary-container: rgb(45, 60, 156);
+  --on-primary-container: rgb(223, 224, 255);
+  --secondary-container: rgb(67, 69, 89);
+  --on-secondary-container: rgb(224, 225, 249);
+  --tertiary: rgb(230, 186, 215);
+  --on-tertiary: rgb(69, 38, 61);
+  --tertiary-container: rgb(93, 60, 84);
+  --on-tertiary-container: rgb(255, 215, 240);
+  --error-container: rgb(147, 0, 10);
+  --on-error: rgb(105, 0, 5);
+  --on-error-container: rgb(255, 180, 171);
+  --md3-outline: rgb(144, 144, 154);
+  --outline-variant: rgb(70, 70, 79);
+  --inverse-surface: rgb(228, 225, 230);
+  --inverse-on-surface: rgb(48, 48, 52);
+  --inverse-primary: rgb(71, 85, 182);
+  --scrim: rgb(0, 0, 0);
+  --shadow-color: rgb(0, 0, 0);
+  --elevation-1: rgb(34, 35, 42);
+  --elevation-2: rgb(38, 40, 49);
+  --elevation-3: rgb(43, 45, 56);
+
+  /* Chart */
+  --chart-1: rgb(187, 195, 255);
+  --chart-2: rgb(196, 197, 221);
+  --chart-3: rgb(230, 186, 215);
+  --chart-4: rgb(71, 85, 182);
+  --chart-5: rgb(255, 180, 171);
+}
+
+/* =================================================================
+   BASE LAYER
+   ================================================================= */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
+  body {
+    @apply bg-background text-foreground;
+  }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Sleek Custom Scrollbars (Skill 3) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--outline-variant);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--md3-outline);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--outline-variant) transparent;
+  }
 }
