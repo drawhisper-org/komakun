@@ -3,9 +3,11 @@
 import {
   ClockCounterClockwiseIcon,
   EyeglassesIcon,
+  GearSixIcon,
 } from "@phosphor-icons/react";
 import { Nunito } from "next/font/google";
 import { useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
 import { UserDropdown } from "@/components/user/user-dropdown";
 
 const nunito = Nunito({
@@ -14,14 +16,12 @@ const nunito = Nunito({
   variable: "--font-nunito",
 });
 
-interface HomeSidebarProps {
-  onOpenSettings: () => void;
-}
-
-export function HomeSidebar({ onOpenSettings }: HomeSidebarProps) {
+export function HomeSidebar() {
   const t = useTranslations("home");
+  const tSettings = useTranslations("settings");
+  const router = useRouter();
   return (
-    <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-outline-variant/20 bg-surface">
+    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-outline-variant/20 bg-surface">
       {/* Brand */}
       <div className="flex items-center gap-2 px-4 py-5">
         <EyeglassesIcon weight="bold" className="h-5 w-5 text-primary" />
@@ -32,7 +32,7 @@ export function HomeSidebar({ onOpenSettings }: HomeSidebarProps) {
 
       {/* User dropdown */}
       <div className="mx-3 mb-4">
-        <UserDropdown onOpenSettings={onOpenSettings} />
+        <UserDropdown />
       </div>
 
       {/* Navigation */}
@@ -40,6 +40,13 @@ export function HomeSidebar({ onOpenSettings }: HomeSidebarProps) {
         <button className="flex items-center gap-2.5 rounded-lg bg-primary-container/30 px-3 py-2 text-sm font-medium text-on-surface transition-colors">
           <ClockCounterClockwiseIcon weight="fill" className="h-4.5 w-4.5 text-primary" />
           {t("recents")}
+        </button>
+        <button
+          onClick={() => router.push("/settings")}
+          className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-on-surface-variant/60 transition-colors hover:bg-surface-variant/20"
+        >
+          <GearSixIcon weight="fill" className="h-4.5 w-4.5" />
+          {tSettings("title")}
         </button>
       </nav>
 

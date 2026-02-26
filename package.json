@@ -12,6 +12,9 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@langchain/core": "^1.1.28",
+    "@langchain/google-genai": "^2.1.20",
+    "@langchain/openai": "^1.2.10",
     "@phosphor-icons/react": "^2.1.10",
     "ag-psd": "^30.1.0",
     "class-variance-authority": "^0.7.1",
@@ -21,6 +24,7 @@
     "idb-keyval": "^6.2.2",
     "jszip": "^3.10.1",
     "konva": "^10.2.0",
+    "langchain": "^1.2.27",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
     "next-intl": "^4.8.3",
@@ -31,6 +35,7 @@
     "react-konva": "^19.2.2",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
+    "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

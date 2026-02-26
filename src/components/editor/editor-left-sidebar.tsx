@@ -73,7 +73,7 @@ export function EditorLeftSidebar({ projectId, onManagePages }: EditorLeftSideba
   );
 
   return (
-    <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-outline-variant/20 bg-surface">
+    <aside className="flex h-full w-65 shrink-0 flex-col border-r border-outline-variant/20 bg-surface">
       {/* Header: Back + Project Name */}
       <div className="flex shrink-0 items-center gap-2 border-b border-outline-variant/15 px-3 py-2.5">
         <button
@@ -227,7 +227,7 @@ function SortablePageCard({
       } ${isDragging ? "shadow-xl shadow-black/25" : ""}`}
     >
       {/* 3:4 thumbnail */}
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-surface-variant/20">
+      <div className="relative aspect-3/4 w-full overflow-hidden rounded-lg bg-surface-variant/20">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={page.originalImageBase64}

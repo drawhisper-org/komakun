@@ -204,7 +204,7 @@ function ManageSortableCard({
         }`}
       >
         {/* 3:4 thumbnail */}
-        <div className="relative aspect-[3/4] w-full overflow-hidden bg-surface-variant/20">
+        <div className="relative aspect-3/4 w-full overflow-hidden bg-surface-variant/20">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={page.originalImageBase64}
@@ -238,7 +238,7 @@ function ManageSortableCard({
 function ManageCardOverlay({ page }: { page: PageState }) {
   return (
     <div className="w-52 overflow-hidden rounded-xl shadow-2xl shadow-black/30 ring-2 ring-primary/60">
-      <div className="aspect-[3/4] w-full overflow-hidden bg-surface-variant/20">
+      <div className="aspect-3/4 w-full overflow-hidden bg-surface-variant/20">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={page.originalImageBase64}

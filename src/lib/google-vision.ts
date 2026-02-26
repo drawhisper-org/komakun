@@ -184,18 +184,12 @@ export function cropAndMaskRegion(
 /* ── Response parsing ── */
 
 /**
- * Classify a text block as speech, narration, or sfx.
- * Simple heuristic based on text length and character patterns.
+ * All OCR blocks default to "speech" — classification happens during
+ * translation so the LLM can use full context (neighbouring blocks,
+ * sentence boundary, etc.) instead of heuristic katakana-ratio checks
+ * that mis-classify vertical-column text fragments as SFX.
  */
-function classifyBlock(text: string): "speech" | "narration" | "sfx" {
-  const trimmed = text.trim();
-  // SFX: short, mostly katakana/symbols or ALL CAPS
-  const katakanaRatio =
-    (trimmed.match(/[\u30A0-\u30FF]/g) || []).length / Math.max(1, trimmed.length);
-  if (trimmed.length <= 6 && katakanaRatio > 0.5) return "sfx";
-  if (trimmed.length <= 4 && /^[A-Z!?.\s]+$/.test(trimmed)) return "sfx";
-  // Narration: longer text without question marks or exclamation
-  if (trimmed.length > 40 && !/[!?！？]/.test(trimmed)) return "narration";
+function classifyBlock(_text: string): "speech" | "narration" | "sfx" {
   return "speech";
 }
 
@@ -246,8 +240,14 @@ function parseVisionResponse(data: any): OcrResult {
     });
   }
 
+  // Group nearby blocks that likely belong to the same speech bubble.
+  // Vertical text gets split into per-column blocks by the OCR engine;
+  // grouping those back together avoids SFX misclassification and keeps
+  // the translation context intact.
+  const grouped = groupNearbyBlocks(blocks);
+
   // Sort by manga reading order: right-to-left, top-to-bottom
-  blocks.sort((a, b) => {
+  grouped.sort((a, b) => {
     const yTolerance = 50;
     if (Math.abs(a.y - b.y) < yTolerance) {
       return b.x - a.x; // Right to left
@@ -255,5 +255,87 @@ function parseVisionResponse(data: any): OcrResult {
     return a.y - b.y; // Top to bottom
   });
 
-  return { blocks, fullText };
+  return { blocks: grouped, fullText };
+}
+
+/**
+ * Merge OCR blocks whose bounding boxes are very close together.
+ * Uses union-find to group blocks where the gap between their rects
+ * is smaller than a fraction of the smaller block's size.
+ */
+function groupNearbyBlocks(blocks: OcrTextBlock[]): OcrTextBlock[] {
+  if (blocks.length <= 1) return blocks;
+
+  const GAP_RATIO = 0.35; // max gap as fraction of smaller dimension
+
+  // Union-find
+  const parent = blocks.map((_, i) => i);
+  function find(i: number): number {
+    while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+    return i;
+  }
+  function union(a: number, b: number) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  }
+
+  for (let i = 0; i < blocks.length; i++) {
+    for (let j = i + 1; j < blocks.length; j++) {
+      const a = blocks[i], b = blocks[j];
+      // Compute gap between two rects (negative = overlapping)
+      const gapX = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width));
+      const gapY = Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height));
+      // Use Chebyshev-style: both horizontal AND vertical gaps must be small
+      const smallerW = Math.min(a.width, b.width);
+      const smallerH = Math.min(a.height, b.height);
+      const threshX = smallerW * GAP_RATIO;
+      const threshY = smallerH * GAP_RATIO;
+      if (gapX <= threshX && gapY <= threshY) {
+        union(i, j);
+      }
+    }
+  }
+
+  // Collect groups
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < blocks.length; i++) {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root)!.push(i);
+  }
+
+  const result: OcrTextBlock[] = [];
+  for (const indices of groups.values()) {
+    if (indices.length === 1) {
+      result.push(blocks[indices[0]]);
+      continue;
+    }
+    // Merge: union bounding box, concatenate text in right-to-left then top-to-bottom order
+    const members = indices.map((i) => blocks[i]);
+    members.sort((a, b) => {
+      const yTol = 30;
+      if (Math.abs(a.y - b.y) < yTol) return b.x - a.x;
+      return a.y - b.y;
+    });
+    const minX = Math.min(...members.map((b) => b.x));
+    const minY = Math.min(...members.map((b) => b.y));
+    const maxX = Math.max(...members.map((b) => b.x + b.width));
+    const maxY = Math.max(...members.map((b) => b.y + b.height));
+    result.push({
+      text: members.map((b) => b.text).join(""),
+      type: "speech",
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      // Use bounding rect vertices instead of original polygon
+      boundingPoly: [
+        { x: minX, y: minY },
+        { x: maxX, y: minY },
+        { x: maxX, y: maxY },
+        { x: minX, y: maxY },
+      ],
+    });
+  }
+  return result;
 }

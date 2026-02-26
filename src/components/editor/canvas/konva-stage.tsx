@@ -64,6 +64,21 @@ function useMarchingAnts(active: boolean) {
   return dashOffset;
 }
 
+/* ── Font-ready hook ── */
+/** Bumps a counter each time a new font face finishes loading, causing Konva text nodes to re-render. */
+function useFontGeneration() {
+  const [gen, setGen] = useState(0);
+  useEffect(() => {
+    const bump = () => setGen((g) => g + 1);
+    // Re-render once all initially-queued fonts are ready
+    document.fonts.ready.then(bump);
+    // Re-render each time a new font loads (user picks a Google Font)
+    document.fonts.addEventListener("loadingdone", bump);
+    return () => document.fonts.removeEventListener("loadingdone", bump);
+  }, []);
+  return gen;
+}
+
 /* ── Main component ── */
 
 export function KonvaStage({
@@ -76,6 +91,7 @@ export function KonvaStage({
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 1, height: 1 });
+  const fontGeneration = useFontGeneration();
 
   // Store
   const activePage = useProjectStore(
@@ -612,7 +628,7 @@ export function KonvaStage({
         {/* Layer 4: Text Nodes */}
         <Layer visible={visibility.text}>
           {activePage?.textBlocks.map((block) => (
-            <TextBlockNode key={block.id} block={block} />
+            <TextBlockNode key={block.id} block={block} fontGeneration={fontGeneration} />
           ))}
         </Layer>
 
@@ -892,7 +908,9 @@ const ResizableBlockRect = memo(function ResizableBlockRect({
 ));
 
 /* ── Text Block Node ── */
-const TextBlockNode = memo(function TextBlockNode({ block }: { block: TextBlock }) {
+const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { block: TextBlock; fontGeneration: number }) {
+  // fontGeneration is used to force re-render when fonts finish loading
+  void fontGeneration;
   const displayText = block.translatedText || block.originalText;
   if (!displayText) return null;
 
@@ -904,6 +922,9 @@ const TextBlockNode = memo(function TextBlockNode({ block }: { block: TextBlock 
   const rotation = block.rotation ?? 0;
   const fontWeight = block.fontWeight || "normal";
   const fontStyle = block.fontStyle || "normal";
+  const letterSpacing = block.letterSpacing ?? 0;
+  const strokeEnabled = block.strokeEnabled ?? false;
+  const strokeW = block.strokeWidth ?? 4;
 
   if (isVertical) {
     // Vertical text: multi-column right-to-left layout like real manga.
@@ -912,15 +933,23 @@ const TextBlockNode = memo(function TextBlockNode({ block }: { block: TextBlock 
     // lineHeight controls column gap (multiplied by fontSize for column width).
     // textAlign maps: left→top, center→center, right→bottom for vertical alignment.
     const fontSize = block.fontSize || 14;
-    const chars = displayText.replace(/\n/g, "").split("");
-    const charH = fontSize * 1.15; // fixed character spacing
+    const charH = fontSize * 1.15 + letterSpacing; // character spacing including user letterSpacing
     const colW = fontSize * lineH; // column width driven by lineHeight (acts as column gap)
     const charsPerCol = Math.max(1, Math.floor(block.height / charH));
 
-    // Split characters into columns
+    // Split into columns: newlines force a column break,
+    // then auto-wrap within each segment when it exceeds block height.
+    const segments = displayText.split("\n");
     const columns: string[][] = [];
-    for (let i = 0; i < chars.length; i += charsPerCol) {
-      columns.push(chars.slice(i, i + charsPerCol));
+    for (const seg of segments) {
+      const chars = seg.split("");
+      if (chars.length === 0) {
+        columns.push([]); // empty column for blank newline
+      } else {
+        for (let i = 0; i < chars.length; i += charsPerCol) {
+          columns.push(chars.slice(i, i + charsPerCol));
+        }
+      }
     }
 
     const combinedStyle =
@@ -951,22 +980,43 @@ const TextBlockNode = memo(function TextBlockNode({ block }: { block: TextBlock 
         {columns.map((col, ci) => {
           // Right-to-left: first column at right edge, shifted by alignment
           const colX = groupOffset + (totalColumnsW - (ci + 1) * colW);
-          return (
+          const sharedProps = {
+            x: colX,
+            y: 0,
+            width: colW,
+            text: col.join("\n"),
+            fontSize,
+            lineHeight: 1.15,
+            letterSpacing,
+            fontFamily,
+            fontStyle: combinedStyle,
+            align: "center" as const,
+            verticalAlign: "top" as const,
+            wrap: "none" as const,
+            listening: false,
+          };
+          return strokeEnabled ? (
+            <Group key={ci}>
+              {/* Bottom layer: white stroke outline */}
+              <KonvaText
+                {...sharedProps}
+                fill="white"
+                stroke="white"
+                strokeWidth={strokeW}
+                lineJoin="round"
+              />
+              {/* Top layer: clean fill */}
+              <KonvaText
+                {...sharedProps}
+                fill={fontColor}
+                strokeEnabled={false}
+              />
+            </Group>
+          ) : (
             <KonvaText
               key={ci}
-              x={colX}
-              y={0}
-              width={colW}
-              text={col.join("\n")}
-              fontSize={fontSize}
-              lineHeight={1.15}
+              {...sharedProps}
               fill={fontColor}
-              fontFamily={fontFamily}
-              fontStyle={combinedStyle}
-              align="center"
-              verticalAlign="top"
-              wrap="none"
-              listening={false}
             />
           );
         })}
@@ -974,23 +1024,49 @@ const TextBlockNode = memo(function TextBlockNode({ block }: { block: TextBlock 
     );
   }
 
+  const horizProps = {
+    x: block.x,
+    y: block.y,
+    width: block.width,
+    height: block.height,
+    rotation,
+    text: displayText,
+    fontSize: block.fontSize || 14,
+    lineHeight: lineH,
+    letterSpacing,
+    fontFamily,
+    fontStyle: `${fontWeight === "bold" ? "bold" : ""} ${fontStyle}`.trim() || "normal",
+    align,
+    verticalAlign: "middle" as const,
+    wrap: "word" as const,
+    listening: false,
+  };
+
+  if (strokeEnabled) {
+    return (
+      <Group>
+        {/* Bottom layer: white stroke outline */}
+        <KonvaText
+          {...horizProps}
+          fill="white"
+          stroke="white"
+          strokeWidth={strokeW}
+          lineJoin="round"
+        />
+        {/* Top layer: clean fill */}
+        <KonvaText
+          {...horizProps}
+          fill={fontColor}
+          strokeEnabled={false}
+        />
+      </Group>
+    );
+  }
+
   return (
     <KonvaText
-      x={block.x}
-      y={block.y}
-      width={block.width}
-      height={block.height}
-      rotation={rotation}
-      text={displayText}
-      fontSize={block.fontSize || 14}
-      lineHeight={lineH}
+      {...horizProps}
       fill={fontColor}
-      fontFamily={fontFamily}
-      fontStyle={`${fontWeight === "bold" ? "bold" : ""} ${fontStyle}`.trim() || "normal"}
-      align={align}
-      verticalAlign="middle"
-      wrap="word"
-      listening={false}
     />
   );
 });

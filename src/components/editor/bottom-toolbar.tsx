@@ -411,7 +411,7 @@ export function BottomToolbar({
       >
         <MagnifyingGlassMinusIcon weight="fill" className="h-4.5 w-4.5" />
       </Button>
-      <span className="min-w-[3rem] text-center text-xs font-medium text-on-surface-variant">
+      <span className="min-w-12 text-center text-xs font-medium text-on-surface-variant">
         {zoomPercent}%
       </span>
       <Button
@@ -447,7 +447,7 @@ export function BottomToolbar({
           >
             <CaretLeftIcon weight="bold" className="h-4 w-4" />
           </Button>
-          <span className="min-w-[3.5rem] text-center text-xs font-medium text-on-surface-variant">
+          <span className="min-w-14 text-center text-xs font-medium text-on-surface-variant">
             {currentIndex + 1} / {totalPages}
           </span>
           <Button

@@ -3,33 +3,30 @@
  * Makes lightweight API calls to validate keys before saving.
  */
 
-export type AIProvider = "google" | "openai" | "anthropic";
+export type AIProvider = "google" | "openai" | "openrouter" | "local";
 
 export const AI_PROVIDERS: { value: AIProvider; label: string }[] = [
+  { value: "openrouter", label: "OpenRouter" },
   { value: "google", label: "Google (Gemini)" },
   { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
+  { value: "local", label: "Local (OpenAI Compatible)" },
 ];
 
 export const AI_MODELS: Record<AIProvider, { value: string; label: string }[]> =
   {
     google: [
-      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
-      { value: "gemini-2.0-pro", label: "Gemini 2.0 Pro" },
-      { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
-      { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
+      { value: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview)" },
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+      { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Preview)" },
     ],
     openai: [
-      { value: "gpt-4o", label: "GPT-4o" },
-      { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-      { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
-      { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
+      { value: "gpt-5.2-2025-12-11", label: "GPT-5.2" },
+      { value: "gpt-5-mini-2025-08-07", label: "GPT-5 Mini" },
+      { value: "gpt-4.1-2025-04-14", label: "GPT-4.1" },
+      { value: "gpt-5.2-pro-2025-12-11", label: "GPT-5.2 Pro" },
     ],
-    anthropic: [
-      { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-      { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet" },
-      { value: "claude-3-haiku-20240307", label: "Claude 3 Haiku" },
-    ],
+    openrouter: [], // dynamically fetched from OpenRouter API
+    local: [],
   };
 
 /**
@@ -72,40 +69,17 @@ export async function validateAPIKey(
         };
       }
 
-      case "anthropic": {
-        // Use a minimal messages request to validate
-        const res = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-3-haiku-20240307",
-            max_tokens: 1,
-            messages: [{ role: "user", content: "hi" }],
-          }),
+      case "openrouter": {
+        // GET /api/v1/models with the API key — lightweight, no cost
+        const res = await fetch("https://openrouter.ai/api/v1/models", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (res.ok) return { valid: true };
-        const data = await res.json().catch(() => null);
-        // 400 with "credit" or "billing" means key is valid but no credits
-        // 401 means invalid key
         if (res.status === 401) {
-          return {
-            valid: false,
-            error: data?.error?.message || "Invalid API key",
-          };
+          return { valid: false, error: "Invalid OpenRouter API key" };
         }
-        // Other errors (rate limit, etc.) mean the key is likely valid
-        if (res.status === 429 || res.status === 400) {
-          return { valid: true };
-        }
-        return {
-          valid: false,
-          error: data?.error?.message || `HTTP ${res.status}`,
-        };
+        return { valid: false, error: `HTTP ${res.status}` };
       }
 
       default:
@@ -115,6 +89,33 @@ export async function validateAPIKey(
     return {
       valid: false,
       error: err instanceof Error ? err.message : "Network error",
+    };
+  }
+}
+
+/**
+ * Validate a local OpenAI-compatible endpoint by hitting /models.
+ * No API key required — localhost only.
+ */
+export async function validateLocalEndpoint(
+  url: string
+): Promise<{ valid: boolean; error?: string }> {
+  if (!url.trim()) {
+    return { valid: false, error: "Endpoint URL is required" };
+  }
+
+  try {
+    const base = url.replace(/\/+$/, "");
+    const res = await fetch(`${base}/models`, {
+      method: "GET",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) return { valid: true };
+    return { valid: false, error: `HTTP ${res.status}` };
+  } catch (err) {
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : "Connection failed",
     };
   }
 }

@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AIProvider } from "@/lib/ai-validator";
-import { validateAPIKey } from "@/lib/ai-validator";
+import { validateAPIKey, validateLocalEndpoint } from "@/lib/ai-validator";
 import { validateVisionKey } from "@/lib/google-vision";
+import { validateReplicateKey } from "@/lib/lama-inpaint";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -17,12 +18,21 @@ export interface WatermarkConfig {
   size: "small" | "default" | "large";
 }
 
+export type InpaintMode = "replicate" | "local";
+
 interface AppConfigState {
   theme: ThemeConfig;
   aiProvider: AIProvider;
   aiModel: string;
   apiKeys: Record<string, string>;
+  /** Target language for manga translation (e.g. "English", "简体中文"). */
+  targetLanguage: string;
   visionApiKey: string;
+  replicateApiKey: string;
+  inpaintMode: InpaintMode;
+  localInpaintUrl: string;
+  localLlmUrl: string;
+  localLlmModel: string;
   watermark: WatermarkConfig;
 }
 
@@ -30,6 +40,7 @@ interface AppConfigActions {
   setTheme: (theme: Partial<ThemeConfig>) => void;
   setAIProvider: (provider: AIProvider) => void;
   setAIModel: (model: string) => void;
+  setTargetLanguage: (lang: string) => void;
   /** Validates the language model API key before saving. */
   validateAndSetAIConfig: (
     provider: AIProvider,
@@ -39,6 +50,20 @@ interface AppConfigActions {
   /** Validates and saves the Vision API key separately. */
   validateAndSetVisionKey: (
     key: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  setReplicateApiKey: (key: string) => void;
+  /** Validates Replicate API key before saving. */
+  validateAndSetReplicateKey: (
+    key: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  setInpaintMode: (mode: InpaintMode) => void;
+  setLocalInpaintUrl: (url: string) => void;
+  setLocalLlmUrl: (url: string) => void;
+  setLocalLlmModel: (model: string) => void;
+  /** Validates local LLM endpoint connectivity. */
+  validateAndSetLocalLlm: (
+    url: string,
+    model: string
   ) => Promise<{ success: boolean; error?: string }>;
   setWatermark: (watermark: Partial<WatermarkConfig>) => void;
 }
@@ -54,9 +79,15 @@ export const useAppConfigStore = create<AppConfigStore>()(
         accentColor: "#303F9F",
       },
       aiProvider: "google",
-      aiModel: "gemini-2.0-flash",
+      aiModel: "gemini-3-flash-preview",
       apiKeys: {},
-      visionApiKey: "AIzaSyARZi2H90G8a5EySq2fXQgVh-vl2ylPEJM",
+      targetLanguage: "English",
+      visionApiKey: "",
+      replicateApiKey: "",
+      inpaintMode: "replicate",
+      localInpaintUrl: "http://localhost:8080",
+      localLlmUrl: "http://localhost:11434/v1",
+      localLlmModel: "",
       watermark: {
         enabled: false,
         imageBase64: null,
@@ -70,6 +101,8 @@ export const useAppConfigStore = create<AppConfigStore>()(
       setAIProvider: (provider) => set({ aiProvider: provider }),
 
       setAIModel: (model) => set({ aiModel: model }),
+
+      setTargetLanguage: (lang) => set({ targetLanguage: lang }),
 
       validateAndSetAIConfig: async (provider, model, key) => {
         const result = await validateAPIKey(provider, key);
@@ -88,6 +121,34 @@ export const useAppConfigStore = create<AppConfigStore>()(
         const result = await validateVisionKey(key);
         if (result.valid) {
           set({ visionApiKey: key });
+          return { success: true };
+        }
+        return { success: false, error: result.error };
+      },
+
+      setReplicateApiKey: (key) => set({ replicateApiKey: key }),
+
+      validateAndSetReplicateKey: async (key) => {
+        const result = await validateReplicateKey(key);
+        if (result.valid) {
+          set({ replicateApiKey: key });
+          return { success: true };
+        }
+        return { success: false, error: result.error };
+      },
+
+      setInpaintMode: (mode) => set({ inpaintMode: mode }),
+
+      setLocalInpaintUrl: (url) => set({ localInpaintUrl: url }),
+
+      setLocalLlmUrl: (url) => set({ localLlmUrl: url }),
+
+      setLocalLlmModel: (model) => set({ localLlmModel: model }),
+
+      validateAndSetLocalLlm: async (url, model) => {
+        const result = await validateLocalEndpoint(url);
+        if (result.valid) {
+          set({ aiProvider: "local", localLlmUrl: url, localLlmModel: model });
           return { success: true };
         }
         return { success: false, error: result.error };

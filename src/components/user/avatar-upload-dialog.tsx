@@ -26,7 +26,7 @@ export function AvatarUploadDialog({ open, onOpenChange }: AvatarUploadDialogPro
   const [naturalW, setNaturalW] = useState(0);
   const [naturalH, setNaturalH] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const dragRef = useRef({ startX: 0, startY: 0, offsetX: 0, offsetY: 0 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
@@ -70,8 +70,14 @@ export function AvatarUploadDialog({ open, onOpenChange }: AvatarUploadDialogPro
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      e.preventDefault();
+      dragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        offsetX: cropOffset.x,
+        offsetY: cropOffset.y,
+      };
       setDragging(true);
-      setDragStart({ x: e.clientX - cropOffset.x, y: e.clientY - cropOffset.y });
     },
     [cropOffset]
   );
@@ -83,15 +89,14 @@ export function AvatarUploadDialog({ open, onOpenChange }: AvatarUploadDialogPro
       const rect = previewEl.getBoundingClientRect();
       const scaleX = naturalW / rect.width;
       const scaleY = naturalH / rect.height;
-      const newX = (e.clientX - dragStart.x);
-      const newY = (e.clientY - dragStart.y);
+      const dx = (e.clientX - dragRef.current.startX) * scaleX;
+      const dy = (e.clientY - dragRef.current.startY) * scaleY;
       setCropOffset({
-        x: Math.max(0, Math.min(newX * scaleX / scaleX, naturalW - cropSize)),
-        y: Math.max(0, Math.min(newY * scaleY / scaleY, naturalH - cropSize)),
+        x: Math.max(0, Math.min(dragRef.current.offsetX + dx, naturalW - cropSize)),
+        y: Math.max(0, Math.min(dragRef.current.offsetY + dy, naturalH - cropSize)),
       });
-      setDragStart({ x: e.clientX - newX, y: e.clientY - newY });
     },
-    [dragging, dragStart, naturalW, naturalH, cropSize]
+    [dragging, naturalW, naturalH, cropSize]
   );
 
   const handleMouseUp = useCallback(() => setDragging(false), []);

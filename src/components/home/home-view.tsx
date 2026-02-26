@@ -60,7 +60,7 @@ function HomeLanguageSwitcher() {
           <span className="text-[11px] font-medium">{current.short}</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[140px]">
+      <DropdownMenuContent align="end" className="min-w-35">
         {LOCALE_OPTIONS.map(({ value, label }) => (
           <DropdownMenuItem
             key={value}
@@ -78,11 +78,7 @@ function HomeLanguageSwitcher() {
   );
 }
 
-interface HomeViewProps {
-  onOpenSettings: () => void;
-}
-
-export function HomeView({ onOpenSettings }: HomeViewProps) {
+export function HomeView() {
   const t = useTranslations("home");
   const router = useRouter();
   const addPages = useProjectStore((s) => s.addPages);
@@ -190,7 +186,7 @@ export function HomeView({ onOpenSettings }: HomeViewProps) {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
       {/* Left sidebar */}
-      <HomeSidebar onOpenSettings={onOpenSettings} />
+      <HomeSidebar />
 
       {/* Main content */}
       <main className="flex flex-1 flex-col overflow-hidden">

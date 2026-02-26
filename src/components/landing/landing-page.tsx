@@ -598,11 +598,11 @@ export function LandingPage() {
     target: videoSectionRef,
     offset: ["start end", "end start"],
   });
-  const videoScale = useTransform(videoProgress, [0.1, 0.45], [0.82, 1]);
-  const videoBorderRadius = useTransform(videoProgress, [0.1, 0.45], [24, 0]);
+  const videoScale = useTransform(videoProgress, [0.15, 0.5], [0.82, 1]);
+  const videoBorderRadius = useTransform(videoProgress, [0.15, 0.5], [24, 0]);
   const videoOverlayOpacity = useTransform(
     videoProgress,
-    [0.1, 0.35],
+    [0.1, 0.38],
     [1, 0],
   );
 
@@ -726,8 +726,7 @@ export function LandingPage() {
 
   return (
     <div
-      className={`relative min-h-screen overflow-x-hidden bg-background ${nunito.variable} ${inter.variable}`}
-      style={{ scrollBehavior: "smooth" }}
+      className={`relative min-h-screen overflow-x-clip bg-background ${nunito.variable} ${inter.variable}`}
     >
       {/* ═══════════════════════ NAV ═══════════════════════ */}
       <nav
@@ -778,7 +777,7 @@ export function LandingPage() {
       {/* ═══════════════════════ HERO ═══════════════════════ */}
       <section
         ref={heroRef}
-        className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6"
+        className="relative flex min-h-screen flex-col items-center justify-center overflow-clip px-6"
       >
         {/* Background effects — indigo-tinted */}
         <div className="pointer-events-none absolute inset-0">
@@ -1002,7 +1001,7 @@ export function LandingPage() {
         id="video-section"
         ref={videoSectionRef}
         className="relative mt-24"
-        style={{ height: "140vh" }}
+        style={{ height: "110vh" }}
       >
         <div className="sticky top-0 flex h-screen flex-col items-center justify-center gap-6 overflow-hidden px-4 md:px-8">
           {/* Section label — fades out */}
@@ -1213,7 +1212,7 @@ export function LandingPage() {
       </section>
 
       {/* ═══════════════════════ TRANSLATION SHOWCASE ═══════════════════════ */}
-      <section className="relative z-10 pt-6 pb-20">
+      <section className="relative z-10 pt-32 pb-24">
         <div className="mx-auto max-w-6xl px-6 md:px-12">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
@@ -1240,7 +1239,7 @@ export function LandingPage() {
       </section>
 
       {/* ═══════════════════════ FEATURES (Redesigned) ═══════════════════════ */}
-      <section className="relative z-10 overflow-hidden py-32">
+      <section className="relative z-10 overflow-clip py-32">
         <div className="absolute inset-0 bg-gradient-to-b from-primary-container/5 via-transparent to-transparent" />
         {/* Decorative manga-style halftone dots (very subtle) */}
         <div
@@ -1253,10 +1252,10 @@ export function LandingPage() {
         />
         <div className="relative mx-auto max-w-6xl px-6 md:px-12">
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.2 }}
-            transition={{ duration: 0.7 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] }}
             className="mb-16 text-center"
           >
             <span className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-primary/70">
@@ -1276,10 +1275,14 @@ export function LandingPage() {
             {features.map((f, i) => (
               <motion.div
                 key={f.title}
-                initial={{ opacity: 0, y: 40 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.15 }}
-                transition={{ duration: 0.5, delay: i * 0.08 }}
+                initial={{ opacity: 0, y: 24, scale: 0.97 }}
+                whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                viewport={{ once: true, amount: 0.1 }}
+                transition={{
+                  duration: 0.6,
+                  delay: i * 0.1,
+                  ease: [0.25, 0.1, 0.25, 1],
+                }}
                 className={`group relative overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface/80 backdrop-blur-sm transition-all duration-300 ${f.borderHover} hover:shadow-2xl hover:shadow-primary/5`}
               >
                 {/* Hover gradient overlay */}
@@ -1316,15 +1319,6 @@ export function LandingPage() {
                   <p className={`text-[13px] leading-relaxed text-on-surface-variant/55 ${inter.className}`}>
                     {f.desc}
                   </p>
-
-                  {/* Learn more link */}
-                  <div className="mt-5 flex items-center gap-1.5 text-xs font-medium text-primary/0 transition-all duration-300 group-hover:text-primary/70">
-                    <span>{t("features.learnMore")}</span>
-                    <ArrowRightIcon
-                      weight="bold"
-                      className="h-3 w-3 transition-transform group-hover:translate-x-0.5"
-                    />
-                  </div>
                 </div>
 
                 {/* Corner decoration — manga panel corner */}
@@ -1336,7 +1330,7 @@ export function LandingPage() {
       </section>
 
       {/* ═══════════════════════ WORKFLOW (Zigzag Timeline) ═══════════════════════ */}
-      <section className="relative z-10 overflow-hidden py-32">
+      <section className="relative z-10 overflow-clip py-32">
         {/* Background blurs */}
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute top-1/4 left-1/2 h-[800px] w-[800px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/3 blur-[150px]" />
@@ -1524,7 +1518,7 @@ export function LandingPage() {
         <div className="mx-auto grid max-w-4xl gap-8 px-6 sm:grid-cols-4">
           {[
             {
-              value: 50,
+              value: 20,
               suffix: "+",
               label: t("stats.languages"),
               prefix: "",
@@ -1532,7 +1526,7 @@ export function LandingPage() {
             {
               value: 80,
               suffix: "",
-              label: t("stats.pagesPerBatch"),
+              label: t("stats.pagesPerProject"),
               prefix: "",
             },
             {

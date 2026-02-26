@@ -21,10 +21,10 @@ import { useTranslations } from "next-intl";
 import { AvatarUploadDialog } from "@/components/user/avatar-upload-dialog";
 
 interface UserDropdownProps {
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
 }
 
-export function UserDropdown({ onOpenSettings }: UserDropdownProps) {
+export function UserDropdown({ onOpenSettings }: UserDropdownProps = {}) {
   const t = useTranslations("user");
   const router = useRouter();
   const userName = useUserStore((s) => s.userName);
@@ -65,7 +65,7 @@ export function UserDropdown({ onOpenSettings }: UserDropdownProps) {
                 {initials}
               </div>
             )}
-            <span className="max-w-[100px] truncate text-xs font-medium text-on-surface">
+            <span className="max-w-25 truncate text-xs font-medium text-on-surface">
               {userName}
             </span>
             <CaretDownIcon weight="fill" className="h-3 w-3 text-on-surface-variant/50" />
@@ -114,7 +114,7 @@ export function UserDropdown({ onOpenSettings }: UserDropdownProps) {
               {t("changeAvatar")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={onOpenSettings}
+              onClick={() => router.push("/settings")}
               className="mx-1 gap-2.5 rounded-lg px-3 py-2 text-xs"
             >
               <GearSixIcon weight="fill" className="h-4 w-4 text-on-surface-variant/60" />

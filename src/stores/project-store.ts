@@ -32,6 +32,12 @@ export interface TextBlock {
   fontWeight?: "normal" | "bold";
   /** Font style: "normal" or "italic". Defaults to "normal". */
   fontStyle?: "normal" | "italic";
+  /** Extra spacing between characters in pixels. Defaults to 0. */
+  letterSpacing?: number;
+  /** Whether to render a white stroke outline behind the text. Defaults to false. */
+  strokeEnabled?: boolean;
+  /** Width of the white stroke outline in pixels. Defaults to 4. */
+  strokeWidth?: number;
   boundingPoly?: { x: number; y: number }[];
 }
 
@@ -76,9 +82,14 @@ interface ProjectActions {
   ) => void;
   addTextBlocks: (pageId: string, blocks: TextBlock[]) => void;
   removeTextBlock: (pageId: string, blockId: string) => void;
+  /** Merge multiple text blocks into one. The first block's ID is kept; others are removed. */
+  mergeTextBlocks: (pageId: string, blockIds: string[]) => void;
   setPageOcrCompleted: (pageId: string, completed: boolean) => void;
   addInpaintStroke: (pageId: string, stroke: InpaintStroke) => void;
   removeInpaintStroke: (pageId: string, strokeId: string) => void;
+  /** Remove all inpaint strokes from a page. */
+  clearInpaintStrokes: (pageId: string) => void;
+  setCleanedImage: (pageId: string, base64: string | null) => void;
   /** Restore a page snapshot (used by undo/redo). Only restores textBlocks & inpaintStrokes. */
   restorePageSnapshot: (
     pageId: string,
@@ -286,6 +297,42 @@ export const useProjectStore = create<ProjectStore>()(
           lastEditedAt: Date.now(),
         })),
 
+      mergeTextBlocks: (pageId, blockIds) =>
+        set((s) => ({
+          pages: s.pages.map((page) => {
+            if (page.id !== pageId || blockIds.length < 2) return page;
+            // Preserve the caller-supplied order (user's click order)
+            const ordered = blockIds
+              .map((id) => page.textBlocks.find((b) => b.id === id))
+              .filter(Boolean) as TextBlock[];
+            if (ordered.length < 2) return page;
+            // Compute bounding rect of all merged blocks
+            const minX = Math.min(...ordered.map((b) => b.x));
+            const minY = Math.min(...ordered.map((b) => b.y));
+            const maxX = Math.max(...ordered.map((b) => b.x + b.width));
+            const maxY = Math.max(...ordered.map((b) => b.y + b.height));
+            const merged: TextBlock = {
+              ...ordered[0],
+              x: minX,
+              y: minY,
+              width: maxX - minX,
+              height: maxY - minY,
+              originalText: ordered.map((b) => b.originalText).join(""),
+              translatedText: ordered.map((b) => b.translatedText).filter(Boolean).join(""),
+              boundingPoly: undefined,
+            };
+            const mergeSet = new Set(blockIds);
+            return {
+              ...page,
+              textBlocks: [
+                ...page.textBlocks.filter((b) => !mergeSet.has(b.id)),
+                merged,
+              ],
+            };
+          }),
+          lastEditedAt: Date.now(),
+        })),
+
       setPageOcrCompleted: (pageId, completed) =>
         set((s) => ({
           pages: s.pages.map((page) =>
@@ -315,6 +362,26 @@ export const useProjectStore = create<ProjectStore>()(
                     (s) => s.id !== strokeId
                   ),
                 }
+              : page
+          ),
+          lastEditedAt: Date.now(),
+        })),
+
+      clearInpaintStrokes: (pageId) =>
+        set((s) => ({
+          pages: s.pages.map((page) =>
+            page.id === pageId
+              ? { ...page, inpaintStrokes: [] }
+              : page
+          ),
+          lastEditedAt: Date.now(),
+        })),
+
+      setCleanedImage: (pageId, base64) =>
+        set((s) => ({
+          pages: s.pages.map((page) =>
+            page.id === pageId
+              ? { ...page, cleanedImageBase64: base64 }
               : page
           ),
           lastEditedAt: Date.now(),
@@ -403,12 +470,17 @@ export const useProjectStore = create<ProjectStore>()(
 
       deleteProject: async (targetId) => {
         const state = get();
+        // Cancel pending auto-sync to prevent re-persisting
+        if (_syncTimer) { clearTimeout(_syncTimer); _syncTimer = null; }
         // Remove from IndexedDB & list
         await idbDel(`komakun-project-${targetId}`);
         useProjectsListStore.getState().removeProject(targetId);
-        // If it's the active project, clear the store
+        // If it's the active project, clear the store AND the persist middleware's generic key
         if (state.projectId === targetId) {
           set({ ...EMPTY_PROJECT });
+          // Remove the persist middleware's IDB entry so onRehydrateStorage
+          // doesn't resurrect the deleted project on next page load
+          await idbDel("komakun-project");
         }
       },
     }),

@@ -95,6 +95,33 @@ export const MANGA_FONTS: MangaFont[] = [
     hasBold: true,
   },
   {
+    label: "Klee One",
+    value: "Klee One",
+    category: "japanese",
+    hasBold: true,
+  },
+  {
+    label: "Yuji Syuku",
+    value: "Yuji Syuku",
+    category: "japanese",
+  },
+  {
+    label: "Kaisei Decol",
+    value: "Kaisei Decol",
+    category: "japanese",
+    hasBold: true,
+  },
+  {
+    label: "Reggae One",
+    value: "Reggae One",
+    category: "japanese",
+  },
+  {
+    label: "RocknRoll One",
+    value: "RocknRoll One",
+    category: "japanese",
+  },
+  {
     label: "Noto Serif JP",
     value: "Noto Serif JP",
     category: "japanese",
@@ -176,6 +203,32 @@ export const MANGA_FONTS: MangaFont[] = [
     category: "chinese",
     hasBold: true,
   },
+  {
+    label: "LXGW WenKai",
+    value: "LXGW WenKai",
+    category: "chinese",
+    hasBold: true,
+  },
+  {
+    label: "Zhi Mang Xing",
+    value: "Zhi Mang Xing",
+    category: "chinese",
+  },
+  {
+    label: "Long Cang",
+    value: "Long Cang",
+    category: "chinese",
+  },
+  {
+    label: "ZCOOL KuaiLe",
+    value: "ZCOOL KuaiLe",
+    category: "chinese",
+  },
+  {
+    label: "ZCOOL XiaoWei",
+    value: "ZCOOL XiaoWei",
+    category: "chinese",
+  },
 
   // ── Korean ──
   {
@@ -214,6 +267,27 @@ export const MANGA_FONTS: MangaFont[] = [
   {
     label: "Gamja Flower",
     value: "Gamja Flower",
+    category: "korean",
+  },
+  {
+    label: "Gaegu",
+    value: "Gaegu",
+    category: "korean",
+    hasBold: true,
+  },
+  {
+    label: "Hi Melody",
+    value: "Hi Melody",
+    category: "korean",
+  },
+  {
+    label: "Poor Story",
+    value: "Poor Story",
+    category: "korean",
+  },
+  {
+    label: "Cute Font",
+    value: "Cute Font",
     category: "korean",
   },
 

@@ -32,6 +32,7 @@ import {
   ExportIcon,
   StackIcon,
   TrashIcon,
+  GitMergeIcon,
 } from "@phosphor-icons/react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,6 +75,8 @@ import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { detectText, cropImageRegion, cropAndMaskRegion } from "@/lib/google-vision";
 import { exportPageAsPng, exportPageAsPsd, exportProjectAsZip, exportProjectAsPsdZip } from "@/lib/export-utils";
+import { inpaintImage } from "@/lib/lama-inpaint";
+import { translateTextBlocks } from "@/lib/translate-service";
 
 /* \u2500\u2500 Platform detection \u2500\u2500 */
 function useIsMac() {
@@ -91,9 +94,25 @@ export function EditorRightSidebar() {
   const projectId = useProjectStore((s) => s.projectId);
   const addTextBlocks = useProjectStore((s) => s.addTextBlocks);
   const restorePageSnapshot = useProjectStore((s) => s.restorePageSnapshot);
+  const setCleanedImage = useProjectStore((s) => s.setCleanedImage);
+  const clearInpaintStrokes = useProjectStore((s) => s.clearInpaintStrokes);
   const setPageOcrCompleted = useProjectStore((s) => s.setPageOcrCompleted);
   const pendingSelection = useOcrUiStore((s) => s.pendingSelection);
   const clearSelection = useOcrUiStore((s) => s.clearSelection);
+
+  // Inpaint config
+  const inpaintMode = useAppConfigStore((s) => s.inpaintMode);
+  const replicateApiKey = useAppConfigStore((s) => s.replicateApiKey);
+  const localInpaintUrl = useAppConfigStore((s) => s.localInpaintUrl);
+
+  // Translation config
+  const aiProvider = useAppConfigStore((s) => s.aiProvider);
+  const aiModel = useAppConfigStore((s) => s.aiModel);
+  const apiKeys = useAppConfigStore((s) => s.apiKeys);
+  const targetLanguage = useAppConfigStore((s) => s.targetLanguage);
+  const localLlmUrl = useAppConfigStore((s) => s.localLlmUrl);
+  const localLlmModel = useAppConfigStore((s) => s.localLlmModel);
+  const updateTextBlock = useProjectStore((s) => s.updateTextBlock);
 
   const activePage = useProjectStore(
     (s) => s.pages.find((p) => p.id === s.activePageId) ?? null
@@ -175,6 +194,8 @@ export function EditorRightSidebar() {
   }, [handleUndo, handleRedo]);
 
   const [ocrLoading, setOcrLoading] = useState(false);
+  const [cleanLoading, setCleanLoading] = useState(false);
+  const [translateLoading, setTranslateLoading] = useState(false);
   const [exportingPng, setExportingPng] = useState(false);
   const [exportingPsd, setExportingPsd] = useState(false);
   const [exportingZip, setExportingZip] = useState(false);
@@ -353,6 +374,129 @@ export function EditorRightSidebar() {
       setOcrLoading(false);
     }
   }, [activePage, ocrLoading, pendingSelection, visionApiKey, addTextBlocks, setPageOcrCompleted, clearSelection, t]);
+
+  // ── Clean background ──
+  const handleCleanBackground = useCallback(async () => {
+    if (!activePage || cleanLoading) return;
+
+    // Validate config
+    if (inpaintMode === "replicate" && !replicateApiKey.trim()) {
+      toast.error(t("cleanFailed"), { description: t("replicateKeyRequired") });
+      return;
+    }
+
+    // Need something to inpaint (OCR boxes or strokes)
+    const hasContent =
+      activePage.textBlocks.length > 0 ||
+      (activePage.inpaintStrokes ?? []).length > 0;
+    if (!hasContent) {
+      toast.error(t("cleanFailed"), { description: t("noMaskContent") });
+      return;
+    }
+
+    setCleanLoading(true);
+    try {
+      // Determine image dimensions from the original image
+      const img = new Image();
+      img.src = activePage.originalImageBase64;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Failed to load image"));
+      });
+
+      const cleanedBase64 = await inpaintImage(
+        activePage,
+        img.naturalWidth,
+        img.naturalHeight,
+        {
+          mode: inpaintMode,
+          replicateApiKey,
+          localEndpoint: localInpaintUrl,
+        }
+      );
+
+      setCleanedImage(activePage.id, cleanedBase64);
+      // Clear inpaint strokes — they've been applied to the cleaned image
+      clearInpaintStrokes(activePage.id);
+      toast.success(t("cleanCompleted"));
+    } catch (err) {
+      toast.error(t("cleanFailed"), { description: String(err) });
+    } finally {
+      setCleanLoading(false);
+    }
+  }, [activePage, cleanLoading, inpaintMode, replicateApiKey, localInpaintUrl, setCleanedImage, clearInpaintStrokes, t]);
+
+  // ── Auto-translate ──
+  const handleTranslate = useCallback(async () => {
+    if (!activePage || translateLoading) return;
+
+    // Validate: need text blocks with originalText
+    const blocksToTranslate = activePage.textBlocks.filter(
+      (b) => b.originalText.trim().length > 0
+    );
+    if (blocksToTranslate.length === 0) {
+      toast.error(t("translateFailed"), { description: t("noTextToTranslate") });
+      return;
+    }
+
+    // Validate: AI config
+    const effectiveModel = aiProvider === "local" ? localLlmModel : aiModel;
+    if (!effectiveModel) {
+      toast.error(t("translateFailed"), { description: t("noModelSelected") });
+      return;
+    }
+    if (aiProvider !== "local" && !apiKeys[aiProvider]) {
+      toast.error(t("translateFailed"), { description: t("aiKeyRequired") });
+      return;
+    }
+
+    setTranslateLoading(true);
+    try {
+      const results = await translateTextBlocks({
+        provider: aiProvider,
+        model: effectiveModel,
+        apiKey: apiKeys[aiProvider] ?? "",
+        targetLanguage: targetLanguage || "English",
+        textBlocks: blocksToTranslate.map((b) => ({
+          id: b.id,
+          originalText: b.originalText,
+          type: b.type,
+        })),
+        localEndpoint: aiProvider === "local" ? localLlmUrl : undefined,
+      });
+
+      // Apply translations to text blocks
+      // Determine if target language should default to vertical text
+      const verticalLangs = ["ja", "日本語", "japanese", "zh", "zh-tw", "zh-cn", "简体中文", "繁體中文", "中文", "chinese", "chinese (simplified)", "chinese (traditional)"];
+      const isVerticalLang = verticalLangs.some(l => (targetLanguage || "").toLowerCase().includes(l));
+      let count = 0;
+      for (const r of results) {
+        if (r.translatedText) {
+          const updates: Partial<TextBlock> = {
+            translatedText: r.translatedText,
+          };
+          // Apply LLM-classified type if returned
+          if (r.type && ["speech", "narration", "sfx"].includes(r.type)) {
+            updates.type = r.type as TextBlock["type"];
+          }
+          // Default vertical text direction for CJK target languages
+          if (isVerticalLang) {
+            updates.textDirection = "vertical";
+          }
+          updateTextBlock(activePage.id, r.id, updates);
+          count++;
+        }
+      }
+
+      toast.success(t("translateCompleted"), {
+        description: `${count} ${t("blocksTranslated")}`,
+      });
+    } catch (err) {
+      toast.error(t("translateFailed"), { description: String(err) });
+    } finally {
+      setTranslateLoading(false);
+    }
+  }, [activePage, translateLoading, aiProvider, aiModel, apiKeys, targetLanguage, localLlmUrl, updateTextBlock, t]);
 
   return (
     <aside className="flex h-full w-70 shrink-0 flex-col border-l border-outline-variant/20 bg-surface">
@@ -535,21 +679,35 @@ export function EditorRightSidebar() {
               step={1}
             />
             <WorkflowStep
-              icon={EraserIcon}
-              label={t("cleanBackground")}
+              icon={
+                cleanLoading
+                  ? CircleNotchIcon
+                  : activePage?.cleanedImageBase64
+                    ? CheckCircleIcon
+                    : EraserIcon
+              }
+              label={
+                cleanLoading
+                  ? t("cleanRunning")
+                  : activePage?.cleanedImageBase64
+                    ? t("cleanDone")
+                    : t("cleanBackground")
+              }
               description={t("cleanStepDesc")}
-              variant="secondary"
-              disabled={!activePage}
-              onClick={() => {}}
+              variant={activePage?.cleanedImageBase64 ? "done" : "secondary"}
+              spinning={cleanLoading}
+              disabled={!activePage || cleanLoading || !activePage?.ocrCompleted}
+              onClick={handleCleanBackground}
               step={2}
             />
             <WorkflowStep
-              icon={TranslateIcon}
-              label={t("autoTranslate")}
+              icon={translateLoading ? CircleNotchIcon : TranslateIcon}
+              label={translateLoading ? t("translateRunning") : t("autoTranslate")}
               description={t("translateStepDesc")}
               variant="tertiary"
-              disabled={!activePage}
-              onClick={() => {}}
+              spinning={translateLoading}
+              disabled={!activePage || translateLoading || !activePage?.ocrCompleted}
+              onClick={handleTranslate}
               step={3}
             />
           </div>
@@ -728,9 +886,12 @@ function TextBlockSection({
   const selectBlock = useEditorSelectionStore((s) => s.selectBlock);
   const removeTextBlock = useProjectStore((s) => s.removeTextBlock);
   const updateTextBlock = useProjectStore((s) => s.updateTextBlock);
+  const mergeTextBlocks = useProjectStore((s) => s.mergeTextBlocks);
   const userName = useUserStore((s) => s.userName);
   const blockRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const pendingEditBlockRef = useRef<string | null>(null);
+  // Ordered array: click order determines merge sequence (1st, 2nd, ...)
+  const [checkedIds, setCheckedIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!selectedBlockId) return;
@@ -745,9 +906,26 @@ function TextBlockSection({
       const snap = getCurrentSnapshot();
       if (snap) pushSnapshot(snap);
       removeTextBlock(pageId, blockId);
+      setCheckedIds((prev) => prev.filter((id) => id !== blockId));
     },
     [getCurrentSnapshot, pushSnapshot, removeTextBlock, pageId]
   );
+
+  const handleMerge = useCallback(() => {
+    if (checkedIds.length < 2) return;
+    const snap = getCurrentSnapshot();
+    if (snap) pushSnapshot(snap);
+    mergeTextBlocks(pageId, checkedIds);
+    setCheckedIds([]);
+  }, [checkedIds, getCurrentSnapshot, pushSnapshot, mergeTextBlocks, pageId]);
+
+  const toggleCheck = useCallback((blockId: string) => {
+    setCheckedIds((prev) =>
+      prev.includes(blockId)
+        ? prev.filter((id) => id !== blockId)
+        : [...prev, blockId]
+    );
+  }, []);
 
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -758,38 +936,50 @@ function TextBlockSection({
     };
   }, []);
 
-  const handleTranslationChange = useCallback(
-    (blockId: string, value: string) => {
+  const handleFieldChange = useCallback(
+    (blockId: string, field: "originalText" | "translatedText", value: string) => {
+      const timerKey = `${blockId}:${field}`;
       if (pendingEditBlockRef.current === blockId) {
         const snap = getCurrentSnapshot();
         if (snap) pushSnapshot(snap);
         pendingEditBlockRef.current = null;
       }
       // Debounce store update for smooth typing
-      clearTimeout(debounceTimers.current[blockId]);
-      debounceTimers.current[blockId] = setTimeout(() => {
-        updateTextBlock(pageId, blockId, { translatedText: value });
-        delete debounceTimers.current[blockId];
+      clearTimeout(debounceTimers.current[timerKey]);
+      debounceTimers.current[timerKey] = setTimeout(() => {
+        updateTextBlock(pageId, blockId, { [field]: value });
+        delete debounceTimers.current[timerKey];
       }, 200);
     },
     [getCurrentSnapshot, pushSnapshot, updateTextBlock, pageId]
   );
 
-  const handleTranslationFocus = useCallback((blockId: string) => {
+  const handleFocus = useCallback((blockId: string) => {
     pendingEditBlockRef.current = blockId;
   }, []);
 
-  const handleTranslationBlur = useCallback(() => {
+  const handleBlur = useCallback(() => {
     pendingEditBlockRef.current = null;
   }, []);
 
   return (
     <div>
-      <div className="mb-1.5 flex items-center gap-1.5">
+      {/* Sticky section header */}
+      <div className="sticky -top-3 z-10 -mx-2.5 mb-1.5 flex items-center gap-1.5 border-b border-outline-variant/15 bg-surface px-2.5 pb-1.5 pt-3">
         <Icon weight="fill" className="h-3 w-3 text-on-surface-variant/50" />
         <span className="text-[11px] font-semibold text-on-surface-variant/70">
           {label}
         </span>
+        {checkedIds.length >= 2 && (
+          <button
+            onClick={handleMerge}
+            className="ml-1 flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary transition-colors hover:bg-primary/20"
+            title="Merge selected blocks"
+          >
+            <GitMergeIcon weight="bold" className="h-2.5 w-2.5" />
+            Merge {checkedIds.length}
+          </button>
+        )}
         <span className="ml-auto rounded-full bg-surface-variant/25 px-1.5 py-0.5 text-[9px] font-bold tabular-nums text-on-surface-variant/40">
           {blocks.length}
         </span>
@@ -797,6 +987,8 @@ function TextBlockSection({
       <div className="space-y-1.5">
         {blocks.map((block) => {
           const isSelected = selectedBlockId === block.id;
+          const mergeIndex = checkedIds.indexOf(block.id); // -1 if not checked
+          const isChecked = mergeIndex >= 0;
           return (
             <div
               key={block.id}
@@ -808,30 +1000,56 @@ function TextBlockSection({
                   : "border-outline-variant/12 bg-surface-variant/8 hover:border-outline-variant/25 hover:bg-surface-variant/15"
               }`}
             >
-              {/* Delete button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDelete(block.id);
-                }}
-                className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-error/15 hover:text-error group-hover:opacity-100"
-                title="Remove"
-              >
-                <XIcon weight="bold" className="h-3 w-3" />
-              </button>
-              <p className="pr-5 text-[10px] leading-tight text-on-surface-variant/50">
-                {block.originalText || (block.source === "manual" ? (userName || "Manual") : "(empty)")}
-              </p>
+              {/* Original text (editable) + action buttons in a single row */}
+              <div className="flex items-start gap-1">
+                <Textarea
+                  defaultValue={block.originalText}
+                  placeholder={block.source === "manual" ? (userName || "Manual") : "Original..."}
+                  className="min-h-6 min-w-0 flex-1 resize-none border-none bg-transparent p-1 text-[10px] leading-tight text-on-surface-variant/50 shadow-none focus-visible:ring-0"
+                  onClick={(e) => e.stopPropagation()}
+                  onFocus={() => handleFocus(block.id)}
+                  onBlur={handleBlur}
+                  onChange={(e) => handleFieldChange(block.id, "originalText", e.target.value)}
+                />
+                <div className={`flex shrink-0 items-center gap-0.5 transition-opacity ${isChecked ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCheck(block.id);
+                    }}
+                    className={`flex h-4.5 w-4.5 items-center justify-center rounded transition-colors ${
+                      isChecked
+                        ? "bg-primary/20 text-primary"
+                        : "hover:bg-surface-variant/30 text-on-surface-variant/40"
+                    }`}
+                    title={isChecked ? `Merge order: ${mergeIndex + 1}` : "Select for merge"}
+                  >
+                    {isChecked ? (
+                      <span className="text-[8px] font-bold leading-none">{mergeIndex + 1}</span>
+                    ) : (
+                      <GitMergeIcon weight="regular" className="h-2.5 w-2.5" />
+                    )}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(block.id);
+                    }}
+                    className="flex h-4.5 w-4.5 items-center justify-center rounded hover:bg-error/15 hover:text-error"
+                    title="Remove"
+                  >
+                    <XIcon weight="bold" className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              </div>
               <Textarea
                 defaultValue={block.translatedText}
                 placeholder="Translation..."
                 className="min-h-9 resize-none border-outline-variant/15 bg-surface/80 text-[11px] leading-snug"
                 onClick={(e) => e.stopPropagation()}
-                onFocus={() => handleTranslationFocus(block.id)}
-                onBlur={handleTranslationBlur}
-                onChange={(e) => {
-                  handleTranslationChange(block.id, e.target.value);
-                }}
+                onFocus={() => handleFocus(block.id)}
+                onBlur={handleBlur}
+                onChange={(e) => handleFieldChange(block.id, "translatedText", e.target.value)}
               />
             </div>
           );
@@ -907,6 +1125,9 @@ function DesignPanel() {
   const rotation = selectedBlock?.rotation ?? 0;
   const fontWeight = selectedBlock?.fontWeight ?? "normal";
   const fontStyle = selectedBlock?.fontStyle ?? "normal";
+  const letterSpacing = selectedBlock?.letterSpacing ?? 0;
+  const strokeEnabled = selectedBlock?.strokeEnabled ?? false;
+  const strokeWidth = selectedBlock?.strokeWidth ?? 4;
 
   const comicFonts = MANGA_FONTS.filter((f) => f.category === "comic");
   const handFonts = MANGA_FONTS.filter((f) => f.category === "handwriting");
@@ -1017,8 +1238,8 @@ function DesignPanel() {
         </button>
       </div>
 
-      {/* \u2500\u2500 Size + Line Height \u2500\u2500 */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* \u2500\u2500 Size + Line Height + Letter Spacing \u2500\u2500 */}
+      <div className="grid grid-cols-3 gap-2">
         <FieldGroup label={t("size")}>
           <Input
             type="number"
@@ -1038,6 +1259,18 @@ function DesignPanel() {
             step={0.1}
             value={lineHeight}
             onChange={(e) => updateLive({ lineHeight: Math.max(0.5, Number(e.target.value) || 1.2) })}
+            onBlur={commitLive}
+            className="h-8 border-outline-variant/25 bg-surface-variant/10 text-[12px] tabular-nums"
+          />
+        </FieldGroup>
+        <FieldGroup label={t("letterSpacing")}>
+          <Input
+            type="number"
+            min={-10}
+            max={50}
+            step={0.5}
+            value={letterSpacing}
+            onChange={(e) => updateLive({ letterSpacing: Number(e.target.value) || 0 })}
             onBlur={commitLive}
             className="h-8 border-outline-variant/25 bg-surface-variant/10 text-[12px] tabular-nums"
           />
@@ -1082,6 +1315,36 @@ function DesignPanel() {
             />
           </div>
         </FieldGroup>
+      </div>
+
+      {/* \u2500\u2500 Stroke \u2500\u2500 */}
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <button
+            onClick={() => update({ strokeEnabled: !strokeEnabled })}
+            className={`flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border text-[11px] font-medium transition-all ${
+              strokeEnabled
+                ? "border-primary/30 bg-primary-container/30 text-on-primary-container"
+                : "border-outline-variant/20 text-on-surface-variant/60 hover:bg-surface-variant/20"
+            }`}
+          >
+            {t("stroke")}
+          </button>
+        </div>
+        {strokeEnabled && (
+          <FieldGroup label={t("strokeWidth")}>
+            <Input
+              type="number"
+              min={1}
+              max={20}
+              step={1}
+              value={strokeWidth}
+              onChange={(e) => updateLive({ strokeWidth: Math.max(1, Number(e.target.value) || 4) })}
+              onBlur={commitLive}
+              className="h-8 w-20 border-outline-variant/25 bg-surface-variant/10 text-[12px] tabular-nums"
+            />
+          </FieldGroup>
+        )}
       </div>
 
       {/* \u2500\u2500 Text Direction \u2500\u2500 */}
