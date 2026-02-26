@@ -2,5 +2,6 @@
     "i18n-ally.localesPaths": [
         "messages",
         "src/i18n"
-    ]
+    ],
+    "chat.agent.maxRequests": 300
 }

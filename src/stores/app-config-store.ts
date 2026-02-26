@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AIProvider } from "@/lib/ai-validator";
 import { validateAPIKey } from "@/lib/ai-validator";
+import { validateVisionKey } from "@/lib/google-vision";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -21,6 +22,7 @@ interface AppConfigState {
   aiProvider: AIProvider;
   aiModel: string;
   apiKeys: Record<string, string>;
+  visionApiKey: string;
   watermark: WatermarkConfig;
 }
 
@@ -28,10 +30,14 @@ interface AppConfigActions {
   setTheme: (theme: Partial<ThemeConfig>) => void;
   setAIProvider: (provider: AIProvider) => void;
   setAIModel: (model: string) => void;
-  /** Validates the API key before saving. Returns true if valid. */
+  /** Validates the language model API key before saving. */
   validateAndSetAIConfig: (
     provider: AIProvider,
     model: string,
+    key: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  /** Validates and saves the Vision API key separately. */
+  validateAndSetVisionKey: (
     key: string
   ) => Promise<{ success: boolean; error?: string }>;
   setWatermark: (watermark: Partial<WatermarkConfig>) => void;
@@ -50,6 +56,7 @@ export const useAppConfigStore = create<AppConfigStore>()(
       aiProvider: "google",
       aiModel: "gemini-2.0-flash",
       apiKeys: {},
+      visionApiKey: "AIzaSyARZi2H90G8a5EySq2fXQgVh-vl2ylPEJM",
       watermark: {
         enabled: false,
         imageBase64: null,
@@ -72,6 +79,15 @@ export const useAppConfigStore = create<AppConfigStore>()(
             aiModel: model,
             apiKeys: { ...s.apiKeys, [provider]: key },
           }));
+          return { success: true };
+        }
+        return { success: false, error: result.error };
+      },
+
+      validateAndSetVisionKey: async (key) => {
+        const result = await validateVisionKey(key);
+        if (result.valid) {
+          set({ visionApiKey: key });
           return { success: true };
         }
         return { success: false, error: result.error };

@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  StackIcon,
+  EyeglassesIcon,
   StarIcon,
   SquaresFourIcon,
   ListIcon,
@@ -13,9 +13,17 @@ import {
   FileImageIcon,
   GlobeIcon,
 } from "@phosphor-icons/react";
+import { Nunito } from "next/font/google";
+
+const nunito = Nunito({
+  subsets: ["latin"],
+  weight: ["400", "700", "800", "900"],
+  variable: "--font-nunito",
+});
 import { HomeSidebar } from "@/components/home/home-sidebar";
 import { ProjectCard } from "@/components/home/project-card";
 import { useProjectStore } from "@/stores/project-store";
+import { useProjectsListStore } from "@/stores/projects-list-store";
 import { useLocaleStore, type Locale } from "@/stores/locale-store";
 import {
   DropdownMenu,
@@ -77,14 +85,12 @@ interface HomeViewProps {
 export function HomeView({ onOpenSettings }: HomeViewProps) {
   const t = useTranslations("home");
   const router = useRouter();
-  const projectId = useProjectStore((s) => s.projectId);
-  const projectName = useProjectStore((s) => s.projectName);
-  const pages = useProjectStore((s) => s.pages);
-  const starred = useProjectStore((s) => s.starred);
-  const lastEditedAt = useProjectStore((s) => s.lastEditedAt);
   const addPages = useProjectStore((s) => s.addPages);
-  const clearProject = useProjectStore((s) => s.clearProject);
-  const toggleStar = useProjectStore((s) => s.toggleStar);
+  const createNewProject = useProjectStore((s) => s.createNewProject);
+  const importProject = useProjectStore((s) => s.importProject);
+  const switchProject = useProjectStore((s) => s.switchProject);
+  const allProjects = useProjectsListStore((s) => s.projects);
+  const toggleStarInList = useProjectsListStore((s) => s.toggleStar);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [filter, setFilter] = useState<FilterMode>("all");
@@ -92,40 +98,88 @@ export function HomeView({ onOpenSettings }: HomeViewProps) {
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [viewStyle, setViewStyle] = useState<ViewStyle>("grid");
 
-  const thumbnail = pages[0]?.originalImageBase64 ?? null;
-
   const handleNewProject = useCallback(() => {
-    clearProject();
     fileInputRef.current?.click();
-  }, [clearProject]);
+  }, []);
 
   const navigateToProject = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      await switchProject(id);
       router.push(`/p/${id}`);
     },
-    [router]
+    [switchProject, router]
   );
 
   const handleFiles = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
-      if (files.length > 0) {
+      if (files.length === 0) { e.target.value = ""; return; }
+
+      // Check if any file is a .koma project
+      const komaFile = files.find((f) => f.name.endsWith(".koma") || f.name.endsWith(".json"));
+      if (komaFile) {
+        // Import .koma project
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const data = JSON.parse(reader.result as string);
+            importProject(data);
+            const state = useProjectStore.getState();
+            if (state.projectId) {
+              await state.saveCurrentProject();
+              router.push(`/p/${state.projectId}`);
+            }
+          } catch {
+            // silently ignore invalid files
+          }
+        };
+        reader.readAsText(komaFile);
+      } else {
+        // Image files — create new project
+        await createNewProject();
         await addPages(files);
-        const id = useProjectStore.getState().projectId;
-        if (id) navigateToProject(id);
+        const state = useProjectStore.getState();
+        if (state.projectId) {
+          await state.saveCurrentProject();
+          router.push(`/p/${state.projectId}`);
+        }
       }
       e.target.value = "";
     },
-    [addPages, navigateToProject]
+    [addPages, createNewProject, importProject, router]
   );
 
-  // Build filtered project list (currently single-project, but array-ready)
+  const handleToggleStar = useCallback(
+    (projectId: string) => {
+      toggleStarInList(projectId);
+      // Also toggle in the active project store if it matches
+      if (useProjectStore.getState().projectId === projectId) {
+        useProjectStore.getState().toggleStar();
+      }
+    },
+    [toggleStarInList]
+  );
+
+  // Build filtered & sorted project list from the projects-list store
   const projects = useMemo(() => {
-    if (!projectId) return [];
-    const p = { projectId, projectName, pageCount: pages.length, thumbnail, starred, lastEditedAt };
-    if (filter === "starred" && !starred) return [];
-    return [p];
-  }, [projectId, projectName, pages.length, thumbnail, starred, lastEditedAt, filter]);
+    let list = [...allProjects];
+    if (filter === "starred") list = list.filter((p) => p.starred);
+
+    list.sort((a, b) => {
+      switch (sortBy) {
+        case "alphabetical":
+          return a.name.localeCompare(b.name, undefined, { numeric: true });
+        case "date-created":
+          return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+        case "last-viewed":
+        default:
+          return (a.lastEditedAt ?? 0) - (b.lastEditedAt ?? 0);
+      }
+    });
+
+    if (sortOrder === "newest") list.reverse();
+    return list;
+  }, [allProjects, filter, sortBy, sortOrder]);
 
   const sortLabel: Record<SortBy, string> = {
     "last-viewed": t("lastViewed"),
@@ -144,8 +198,10 @@ export function HomeView({ onOpenSettings }: HomeViewProps) {
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-outline-variant/10 px-6">
           <div className="flex items-center">
             <div className="flex items-center gap-2 md:hidden">
-              <StackIcon weight="fill" className="h-5 w-5 text-primary" />
-              <span className="text-sm font-bold text-on-surface">{t("brand")}</span>
+              <EyeglassesIcon weight="bold" className="h-5 w-5 text-primary" />
+              <span className={`text-base font-black tracking-tight text-on-surface ${nunito.className}`}>
+                KomaKun<span className="text-primary">!</span>
+              </span>
             </div>
             <h1 className="hidden text-sm font-semibold text-on-surface md:block">
               {t("recents")}
@@ -269,18 +325,18 @@ export function HomeView({ onOpenSettings }: HomeViewProps) {
               {/* Existing project cards */}
               {projects.map((p) => (
                 <ProjectCard
-                  key={p.projectId}
+                  key={p.id}
                   type="project"
-                  name={p.projectName}
+                  name={p.name}
                   pageCount={p.pageCount}
-                  thumbnail={p.thumbnail}
+                  thumbnail={p.thumbnailBase64}
                   starred={p.starred}
                   lastEditedAt={p.lastEditedAt}
                   onToggleStar={(e) => {
                     e.stopPropagation();
-                    toggleStar();
+                    handleToggleStar(p.id);
                   }}
-                  onClick={() => navigateToProject(p.projectId!)}
+                  onClick={() => navigateToProject(p.id)}
                 />
               ))}
             </div>
@@ -297,25 +353,30 @@ export function HomeView({ onOpenSettings }: HomeViewProps) {
                     +
                   </span>
                 </div>
-                <span className="text-xs font-medium text-on-surface-variant/50 group-hover:text-primary">
-                  {t("newProject")}
-                </span>
+                <div className="min-w-0 flex-1 text-left">
+                  <span className="text-xs font-medium text-on-surface-variant/50 group-hover:text-primary">
+                    {t("newProject")}
+                  </span>
+                  <p className="text-[10px] text-on-surface-variant/35">
+                    {t("supportedFiles")}
+                  </p>
+                </div>
               </button>
 
               {/* Project rows */}
               {projects.map((p) => (
                 <button
-                  key={p.projectId}
-                  onClick={() => navigateToProject(p.projectId!)}
+                  key={p.id}
+                  onClick={() => navigateToProject(p.id)}
                   className="group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-surface-variant/20"
                 >
                   {/* Thumbnail */}
                   <div className="h-10 w-14 shrink-0 overflow-hidden rounded-lg bg-surface-variant/20">
-                    {p.thumbnail ? (
+                    {p.thumbnailBase64 ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={p.thumbnail}
-                        alt={p.projectName}
+                        src={p.thumbnailBase64}
+                        alt={p.name}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -331,7 +392,7 @@ export function HomeView({ onOpenSettings }: HomeViewProps) {
                   {/* Info */}
                   <div className="min-w-0 flex-1 text-left">
                     <p className="truncate text-xs font-medium text-on-surface">
-                      {p.projectName || t("untitledProject")}
+                      {p.name || t("untitledProject")}
                     </p>
                     <p className="text-[10px] text-on-surface-variant/50">
                       {p.pageCount} page{p.pageCount !== 1 ? "s" : ""}
@@ -351,12 +412,12 @@ export function HomeView({ onOpenSettings }: HomeViewProps) {
                     tabIndex={0}
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleStar();
+                      handleToggleStar(p.id);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.stopPropagation();
-                        toggleStar();
+                        handleToggleStar(p.id);
                       }
                     }}
                     className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface-variant/30"
@@ -378,7 +439,7 @@ export function HomeView({ onOpenSettings }: HomeViewProps) {
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*"
+        accept="image/*,.koma,.json"
         className="hidden"
         onChange={handleFiles}
       />

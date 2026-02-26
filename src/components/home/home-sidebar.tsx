@@ -2,9 +2,17 @@
 
 import {
   ClockCounterClockwiseIcon,
+  EyeglassesIcon,
 } from "@phosphor-icons/react";
+import { Nunito } from "next/font/google";
 import { useTranslations } from "next-intl";
 import { UserDropdown } from "@/components/user/user-dropdown";
+
+const nunito = Nunito({
+  subsets: ["latin"],
+  weight: ["400", "700", "800", "900"],
+  variable: "--font-nunito",
+});
 
 interface HomeSidebarProps {
   onOpenSettings: () => void;
@@ -16,8 +24,9 @@ export function HomeSidebar({ onOpenSettings }: HomeSidebarProps) {
     <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-outline-variant/20 bg-surface">
       {/* Brand */}
       <div className="flex items-center gap-2 px-4 py-5">
-        <span className="text-base font-bold tracking-tight text-on-surface">
-          {t("brand")}
+        <EyeglassesIcon weight="bold" className="h-5 w-5 text-primary" />
+        <span className={`text-lg font-black tracking-tight text-on-surface ${nunito.className}`}>
+          KomaKun<span className="text-primary">!</span>
         </span>
       </div>
 

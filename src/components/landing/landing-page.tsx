@@ -748,7 +748,7 @@ export function LandingPage() {
         <div className="flex items-center gap-1">
           <LanguageSwitcher />
           <a
-            href="https://github.com"
+            href="https://github.com/drawhisper-org/komakun"
             target="_blank"
             rel="noopener noreferrer"
             className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant"
@@ -1616,7 +1616,7 @@ export function LandingPage() {
                   {t("community.ctaJoin")}
                 </motion.button>
                 <motion.a
-                  href="https://github.com"
+                  href="https://github.com/drawhisper-org/komakun"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 px-7 py-3 text-sm font-medium text-on-surface-variant/70 transition-colors hover:bg-surface-variant/20"

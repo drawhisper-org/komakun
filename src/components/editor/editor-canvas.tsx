@@ -1,11 +1,27 @@
 "use client";
 
 import { useCallback } from "react";
+import dynamic from "next/dynamic";
 import { CloudArrowUpIcon, ImageIcon, FileImageIcon } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/stores/project-store";
+import type { ActiveTool } from "@/components/editor/canvas/konva-stage";
 
-export function EditorCanvas() {
+// react-konva requires browser APIs — lazy-load with SSR disabled
+const KonvaStage = dynamic(
+  () => import("@/components/editor/canvas/konva-stage").then((m) => m.KonvaStage),
+  { ssr: false }
+);
+
+interface EditorCanvasProps {
+  viewport: { x: number; y: number; scale: number };
+  onViewportChange: (v: { x: number; y: number; scale: number }) => void;
+  activeTool: ActiveTool;
+  fitSignal: number;
+  brushSize: number;
+}
+
+export function EditorCanvas({ viewport, onViewportChange, activeTool, fitSignal, brushSize }: EditorCanvasProps) {
   const t = useTranslations("editor");
   const addPages = useProjectStore((s) => s.addPages);
   const pages = useProjectStore((s) => s.pages);
@@ -34,26 +50,21 @@ export function EditorCanvas() {
     [addPages]
   );
 
-  // Pages loaded — canvas placeholder
+  // Pages loaded — show Konva canvas
   if (pages.length > 0) {
     return (
       <div
-        className="flex h-full w-full items-center justify-center bg-background"
+        className="h-full w-full bg-neutral-900"
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
-        <div className="text-center">
-          <FileImageIcon
-            weight="fill"
-            className="mx-auto mb-3 h-16 w-16 text-primary/30"
-          />
-          <p className="text-sm font-medium text-on-surface/50">
-            {t("canvasPlaceholder")}
-          </p>
-          <p className="mt-1 text-xs text-on-surface-variant/40">
-            {t("pagesLoaded", { count: pages.length })}
-          </p>
-        </div>
+        <KonvaStage
+          viewport={viewport}
+          onViewportChange={onViewportChange}
+          activeTool={activeTool}
+          fitSignal={fitSignal}
+          brushSize={brushSize}
+        />
       </div>
     );
   }

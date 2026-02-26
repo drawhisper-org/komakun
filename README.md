@@ -6,20 +6,15 @@
 
 AI-powered OCR · Smart Cleaning · Pro Typesetting — all in your browser.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
 
 </div>
 
 ---
 
-[English](#english) · [中文](#中文) · [日本語](#日本語)
-
----
-
-<a id="english"></a>
-
-## 🇬🇧 English
+<details open>
+<summary><b>🇬🇧 English</b></summary>
 
 ### What is KomaKun!
 
@@ -112,13 +107,12 @@ pnpm start   # serves the production build
 
 ### License
 
-MIT — free to use, fork, and self-host.
+GNU Affero General Public License v3.0 — free to use, fork, and self-host. Any modified version served over a network must also be open-sourced under the same license.
 
----
+</details>
 
-<a id="中文"></a>
-
-## 🇨🇳 中文
+<details>
+<summary><b>🇨🇳 中文</b></summary>
 
 ### KomaKun! 是什么
 
@@ -211,13 +205,12 @@ pnpm start   # 启动生产服务
 
 ### 许可证
 
-MIT — 免费使用、Fork、自建部署。
+GNU Affero 通用公共许可证 v3.0 —— 免费使用、Fork、自建部署。任何通过网络提供服务的修改版本必须同样以相同许可证开源。
 
----
+</details>
 
-<a id="日本語"></a>
-
-## 🇯🇵 日本語
+<details>
+<summary><b>🇯🇵 日本語</b></summary>
 
 ### KomaKun! とは
 
@@ -310,4 +303,6 @@ pnpm start   # 本番ビルドを起動
 
 ### ライセンス
 
-MIT — 無料で利用、フォーク、セルフホスト可能。
+GNU Affero General Public License v3.0 — 無料で利用、フォーク、セルフホスト可能。ネットワーク経由でサービスを提供する改変版も、同じライセンスでソースを公開する必要があります。
+
+</details>

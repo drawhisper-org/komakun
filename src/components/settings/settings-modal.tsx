@@ -16,6 +16,7 @@ import {
   SpinnerGapIcon,
   ImageIcon,
   TrashIcon,
+  ScanIcon,
 } from "@phosphor-icons/react";
 import {
   Dialog,
@@ -224,14 +225,20 @@ function AIConfigSection() {
   const aiProvider = useAppConfigStore((s) => s.aiProvider);
   const aiModel = useAppConfigStore((s) => s.aiModel);
   const apiKeys = useAppConfigStore((s) => s.apiKeys);
+  const visionApiKey = useAppConfigStore((s) => s.visionApiKey);
   const validateAndSetAIConfig = useAppConfigStore(
     (s) => s.validateAndSetAIConfig
+  );
+  const validateAndSetVisionKey = useAppConfigStore(
+    (s) => s.validateAndSetVisionKey
   );
 
   const [localProvider, setLocalProvider] = useState<AIProvider>(aiProvider);
   const [localModel, setLocalModel] = useState(aiModel);
   const [localKey, setLocalKey] = useState(apiKeys[aiProvider] ?? "");
+  const [localVisionKey, setLocalVisionKey] = useState(visionApiKey);
   const [validating, setValidating] = useState(false);
+  const [validatingVision, setValidatingVision] = useState(false);
 
   // When provider changes, update local model + key
   const handleProviderChange = (value: string) => {
@@ -264,6 +271,24 @@ function AIConfigSection() {
       setValidating(false);
     }
   }, [localProvider, localModel, localKey, validateAndSetAIConfig]);
+
+  const handleValidateVisionKey = useCallback(async () => {
+    setValidatingVision(true);
+    try {
+      const result = await validateAndSetVisionKey(localVisionKey);
+      if (result.success) {
+        toast.success(t("visionKeySaved"));
+      } else {
+        toast.error(t("validationFailed"), {
+          description: result.error || t("invalidApiKey"),
+        });
+      }
+    } catch {
+      toast.error(t("validationFailed"), { description: t("unexpectedError") });
+    } finally {
+      setValidatingVision(false);
+    }
+  }, [localVisionKey, validateAndSetVisionKey]);
 
   return (
     <>
@@ -360,6 +385,66 @@ function AIConfigSection() {
           <>
             <CheckCircleIcon weight="fill" className="h-4 w-4" />
             {t("validateAndSave")}
+          </>
+        )}
+      </Button>
+
+      <Separator className="bg-outline-variant/20" />
+
+      {/* ── Vision API Key (OCR) ── */}
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold text-on-surface-variant">
+            {t("visionApiKey")}
+          </Label>
+          <p className="text-[11px] text-on-surface-variant/50">
+            {t("visionApiKeyDesc")}
+          </p>
+          <div className="relative">
+            <ScanIcon
+              weight="fill"
+              className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-variant/40"
+            />
+            <Input
+              type="password"
+              value={localVisionKey}
+              onChange={(e) => setLocalVisionKey(e.target.value)}
+              placeholder={t("visionKeyPlaceholder")}
+              className="h-9 border-outline-variant/40 bg-surface-variant/20 pl-8 text-sm"
+            />
+          </div>
+        </div>
+
+        {visionApiKey && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <CheckCircleIcon
+              weight="fill"
+              className="h-3.5 w-3.5 text-green-500"
+            />
+            <span className="text-on-surface-variant/60">
+              {t("visionKeySaved")}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <Button
+        onClick={handleValidateVisionKey}
+        disabled={validatingVision || !localVisionKey.trim()}
+        className="w-full gap-2 bg-secondary font-semibold text-secondary-foreground hover:bg-secondary/90"
+      >
+        {validatingVision ? (
+          <>
+            <SpinnerGapIcon
+              weight="fill"
+              className="h-4 w-4 animate-spin"
+            />
+            Validating...
+          </>
+        ) : (
+          <>
+            <ScanIcon weight="fill" className="h-4 w-4" />
+            {t("validateVisionKey")}
           </>
         )}
       </Button>

@@ -60,6 +60,9 @@ export function ProjectCard({
             <p className="truncate text-xs font-medium text-on-surface-variant/50 transition-colors group-hover:text-primary">
               {t("newProject")}
             </p>
+            <p className="text-[10px] text-on-surface-variant/35">
+              {t("supportedFiles")}
+            </p>
           </div>
         </div>
       </button>
