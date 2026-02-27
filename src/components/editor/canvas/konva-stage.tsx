@@ -599,7 +599,7 @@ export function KonvaStage({
         </Layer>
 
         {/* Layer 3: Bounding Boxes — OCR + Manual, all resizable */}
-        <Layer listening={activeTool === "select" || activeTool === "text"}>
+        <Layer visible={visibility.text} listening={activeTool === "select" || activeTool === "text"}>
           {activePage?.textBlocks.map((block) => {
             const isSelected = selectedBlockId === block.id;
             const canInteract = activeTool === "select";

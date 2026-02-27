@@ -13,8 +13,7 @@ AI-powered OCR · Smart Cleaning · Pro Typesetting — all in your browser.
 
 ---
 
-<details open>
-<summary><b>🇬🇧 English</b></summary>
+## 🇬🇧 English
 
 ### What is KomaKun!
 
@@ -24,13 +23,12 @@ KomaKun! is a browser-based manga/comic translation IDE. Import raw scans, run A
 
 - **Node.js** ≥ 18
 - **pnpm** (recommended) or npm / yarn
-- A **Google Cloud API Key** (required for OCR — see below)
 
 ### Install & Run
 
 ```bash
 # 1. Clone
-git clone https://github.com/drawhisper-org/komakun.git
+git clone https://github.com/nicejoy/komakun.git
 cd komakun
 
 # 2. Install dependencies
@@ -42,11 +40,17 @@ pnpm dev
 
 Open **http://localhost:3000** and create a local profile to start.
 
-### Google Cloud API Key (Required)
+### API Keys Setup
 
-A Google Cloud API key is **required** for OCR (text detection on manga pages). Without it, auto-detection will not work.
+KomaKun! relies on external APIs for OCR, inpainting, and translation. You only need **2 API keys** to unlock all features if you choose Replicate as your LLM provider.
 
-#### How to create one
+#### 1. Google Cloud Vision API Key (OCR) — Required
+
+This key powers OCR (text detection on manga pages). Without it, text auto-detection will not work.
+
+> ⚠️ This is a **Google Cloud** API key, different from the Google AI Studio key used for Gemini LLM models.
+
+**How to create:**
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a new project (or select an existing one).
@@ -57,37 +61,50 @@ A Google Cloud API key is **required** for OCR (text detection on manga pages). 
 7. Copy the generated key.
 8. *(Recommended)* Click **Edit API key** → under **API restrictions**, select **Restrict key** and choose only **Cloud Vision API**.
 
-#### Setup in KomaKun!
+**Setup in KomaKun!:**
+Settings → **Vision API** → Paste your key → **Validate & Save**.
 
-1. Open KomaKun! in your browser.
-2. Click your avatar (top-right) → **Settings**.
-3. Go to the **Model Config** tab.
-4. Select **Google** as the AI Provider.
-5. Paste your API key and click **Validate & Save**.
+> All keys are stored locally in your browser (IndexedDB). They are never sent to any server other than the respective API endpoints.
 
-> The key is stored locally in your browser (IndexedDB). It is never sent to any server other than Google's API endpoints.
+#### 2. Replicate API Key (Inpainting + LLM Translation) — Recommended
 
-### Translation Models (Bring Your Own Key)
+A single Replicate key powers **both** LaMa inpainting (smart text cleaning) **and** LLM translation. This is the recommended setup — only 2 API keys total for the full workflow.
 
-OCR is powered by Google Cloud Vision, but **translation** supports multiple LLM providers:
+**How to create:**
 
-| Provider | Models | How to get a key |
-|----------|--------|-----------------|
-| **Google** (Gemini) | Gemini 2.0 Flash, Gemini 2.5 Pro | [Google AI Studio](https://aistudio.google.com/apikey) |
-| **OpenAI** | GPT-4o, GPT-4o mini | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| **Anthropic** | Claude Sonnet, Claude Haiku | [Anthropic Console](https://console.anthropic.com/) |
+1. Go to [replicate.com](https://replicate.com/) and sign in.
+2. Navigate to **Account Settings → API tokens**.
+3. Create a new token and copy it.
 
-Switch providers anytime in **Settings → Model Config**. Each provider key is stored separately.
+**Setup in KomaKun!:**
+1. Settings → **Inpainting** → Select **Replicate** → Paste your key → **Save Replicate Key**.
+2. Settings → **Model Config** → Select **Replicate** as AI Provider → Choose a model → **Validate & Save**.
+   The Replicate API key from step 1 is automatically shared — no need to enter it again.
 
-### Pay-As-You-Go Mode
+**Available Replicate models:**
 
-Don't have your own API keys? KomaKun! also offers a **Pay-As-You-Go** mode:
+| Model | Description |
+|-------|-------------|
+| DeepSeek V3.1 | Strong multilingual translation |
+| GPT-5.2 | OpenAI's latest via Replicate |
+| GPT-4.1 | Balanced cost and quality |
+| Gemini 2.5 Flash | Fast and cost-effective |
+| Kimi K2.5 | Moonshot AI's flagship |
 
-- Purchase credits directly within the app via **Stripe** or credit/debit card.
-- Credits are consumed per OCR call and per translation request.
-- No subscription — pay only for what you use.
+#### 3. Other LLM Providers (Optional)
 
-> Pay-As-You-Go removes the need to manage API keys yourself. Great for casual users and small teams.
+If you prefer a different LLM provider for translation, KomaKun! also supports:
+
+| Provider | Models | API Key Source |
+|----------|--------|---------------|
+| **Google (Gemini)** | Gemini 3 Flash, Gemini 2.5 Flash, Gemini 3.1 Pro | [Google AI Studio](https://aistudio.google.com/) |
+| **OpenAI** | GPT-5.2, GPT-5 Mini, GPT-4.1, GPT-5.2 Pro | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| **OpenRouter** | 100+ models (dynamically fetched) | [OpenRouter](https://openrouter.ai/keys) |
+| **Local** | Any OpenAI-compatible endpoint (Ollama, etc.) | No key needed |
+
+> ⚠️ The **Google (Gemini)** API key is obtained from [Google AI Studio](https://aistudio.google.com/), **not** from Google Cloud Console. It is a separate key from the Cloud Vision API key used for OCR.
+
+Switch providers anytime in **Settings → Model Config**.
 
 ### Build for Production
 
@@ -104,15 +121,15 @@ pnpm start   # serves the production build
 - **Zustand** for state management
 - **next-intl** for i18n (en, zh, zh-TW, ja)
 - **IndexedDB** for local data persistence
+- **react-konva** for canvas rendering
 
 ### License
 
 GNU Affero General Public License v3.0 — free to use, fork, and self-host. Any modified version served over a network must also be open-sourced under the same license.
 
-</details>
+---
 
-<details>
-<summary><b>🇨🇳 中文</b></summary>
+## 🇨🇳 中文
 
 ### KomaKun! 是什么
 
@@ -122,13 +139,12 @@ KomaKun!（分镜君！）是一个基于浏览器的漫画翻译 IDE。导入�
 
 - **Node.js** ≥ 18
 - **pnpm**（推荐）或 npm / yarn
-- 一个 **Google Cloud API Key**（OCR 必需，详见下文）
 
 ### 安装与运行
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/drawhisper-org/komakun.git
+git clone https://github.com/nicejoy/komakun.git
 cd komakun
 
 # 2. 安装依赖
@@ -140,11 +156,17 @@ pnpm dev
 
 打开 **http://localhost:3000**，创建本地档案即可开始使用。
 
-### Google Cloud API Key（必需）
+### API 密钥配置
 
-Google Cloud API Key 是 OCR（漫画页面文字检测）的**必需项**。没有它，自动文字识别将无法工作。
+KomaKun! 依赖外部 API 实现 OCR、图像修复和翻译。如果选择 Replicate 作为 LLM 供应商，你只需要 **2 个 API 密钥**即可解锁全部功能。
 
-#### 如何创建
+#### 1. Google Cloud Vision API 密钥（OCR）— 必需
+
+用于 OCR（漫画页面文字检测）。没有它，自动文字识别将无法工作。
+
+> ⚠️ 这是 **Google Cloud** API 密钥，与下方用于 Gemini LLM 模型的 Google AI Studio 密钥**不同**。
+
+**如何创建：**
 
 1. 前往 [Google Cloud Console](https://console.cloud.google.com/)。
 2. 创建新项目（或选择已有项目）。
@@ -155,37 +177,50 @@ Google Cloud API Key 是 OCR（漫画页面文字检测）的**必需项**。没
 7. 复制生成的密钥。
 8. *（建议）* 点击**编辑 API 密钥** → **API 限制**中选择**限制密钥**，仅勾选 **Cloud Vision API**。
 
-#### 在 KomaKun! 中配置
+**在 KomaKun! 中配置：**
+设置 → **Vision API** → 粘贴密钥 → **验证并保存**。
 
-1. 在浏览器中打开 KomaKun!。
-2. 点击右上角头像 → **设置**。
-3. 进入**模型设置**标签页。
-4. 选择 **Google** 作为 AI 服务。
-5. 粘贴你的 API 密钥，点击**验证并保存**。
+> 所有密钥仅存储在浏览器本地（IndexedDB），不会发送到对应 API 端点以外的任何服务器。
 
-> 密钥仅存储在浏览器本地（IndexedDB），不会发送到 Google API 以外的任何服务器。
+#### 2. Replicate API 密钥（图像修复 + LLM 翻译）— 推荐
 
-### 翻译模型（自带密钥）
+一个 Replicate 密钥同时驱动 **LaMa 图像修复**（智能去字）**和** LLM 翻译。这是推荐的配置方式——全流程总共只需 2 个 API 密钥。
 
-OCR 由 Google Cloud Vision 驱动，但**翻译**支持多个 LLM 供应商：
+**如何创建：**
 
-| 供应商 | 模型 | 获取密钥 |
-|--------|------|---------|
-| **Google** (Gemini) | Gemini 2.0 Flash, Gemini 2.5 Pro | [Google AI Studio](https://aistudio.google.com/apikey) |
-| **OpenAI** | GPT-4o, GPT-4o mini | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| **Anthropic** | Claude Sonnet, Claude Haiku | [Anthropic Console](https://console.anthropic.com/) |
+1. 前往 [replicate.com](https://replicate.com/) 并登录。
+2. 进入 **Account Settings → API tokens**。
+3. 创建新的 token 并复制。
 
-随时在**设置 → 模型设置**中切换供应商，每个供应商的密钥独立存储。
+**在 KomaKun! 中配置：**
+1. 设置 → **图像修复** → 选择 **Replicate** → 粘贴密钥 → **保存 Replicate 密钥**。
+2. 设置 → **模型设置** → 选择 **Replicate** 作为 AI 供应商 → 选择模型 → **验证并保存**。
+   第 1 步的 Replicate API 密钥会自动共享，无需重复输入。
 
-### 按量付费模式
+**可用的 Replicate 模型：**
 
-没有自己的 API 密钥？KomaKun! 还提供**按量付费**模式：
+| 模型 | 说明 |
+|------|------|
+| DeepSeek V3.1 | 强大的多语言翻译 |
+| GPT-5.2 | 通过 Replicate 使用 OpenAI 最新模型 |
+| GPT-4.1 | 性价比均衡 |
+| Gemini 2.5 Flash | 快速且经济 |
+| Kimi K2.5 | 月之暗面旗舰模型 |
 
-- 在应用内通过 **Stripe** 或信用卡/借记卡直接购买额度。
-- 额度按 OCR 调用次数和翻译请求次数消耗。
-- 无需订阅——用多少付多少。
+#### 3. 其他 LLM 供应商（可选）
 
-> 按量付费模式让你无需自行管理 API 密钥，非常适合轻度用户和小团队。
+如果你偏好其他 LLM 供应商进行翻译，KomaKun! 还支持：
+
+| 供应商 | 模型 | API 密钥来源 |
+|--------|------|-------------|
+| **Google (Gemini)** | Gemini 3 Flash, Gemini 2.5 Flash, Gemini 3.1 Pro | [Google AI Studio](https://aistudio.google.com/) |
+| **OpenAI** | GPT-5.2, GPT-5 Mini, GPT-4.1, GPT-5.2 Pro | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| **OpenRouter** | 100+ 模型（动态获取） | [OpenRouter](https://openrouter.ai/keys) |
+| **本地** | 任何 OpenAI 兼容端点（Ollama 等） | 无需密钥 |
+
+> ⚠️ **Google (Gemini)** 的 API 密钥从 [Google AI Studio](https://aistudio.google.com/) 获取，**不是**从 Google Cloud Console。它与 OCR 使用的 Cloud Vision API 密钥是两个不同的密钥。
+
+随时在**设置 → 模型设置**中切换供应商。
 
 ### 构建生产版本
 
@@ -202,15 +237,15 @@ pnpm start   # 启动生产服务
 - **Zustand** 状态管理
 - **next-intl** 国际化（en, zh, zh-TW, ja）
 - **IndexedDB** 本地数据持久化
+- **react-konva** 画布渲染
 
 ### 许可证
 
 GNU Affero 通用公共许可证 v3.0 —— 免费使用、Fork、自建部署。任何通过网络提供服务的修改版本必须同样以相同许可证开源。
 
-</details>
+---
 
-<details>
-<summary><b>🇯🇵 日本語</b></summary>
+## 🇯🇵 日本語
 
 ### KomaKun! とは
 
@@ -220,13 +255,12 @@ KomaKun!（コマくん！）は、ブラウザベースのマンガ翻訳 IDE �
 
 - **Node.js** ≥ 18
 - **pnpm**（推奨）または npm / yarn
-- **Google Cloud API キー**（OCR に必須。詳細は下記）
 
 ### インストール & 起動
 
 ```bash
 # 1. クローン
-git clone https://github.com/drawhisper-org/komakun.git
+git clone https://github.com/nicejoy/komakun.git
 cd komakun
 
 # 2. 依存関係をインストール
@@ -238,11 +272,17 @@ pnpm dev
 
 **http://localhost:3000** を開き、ローカルプロフィールを作成すれば利用開始です。
 
-### Google Cloud API キー（必須）
+### API キーの設定
 
-Google Cloud API キーは OCR（マンガページのテキスト検出）に**必須**です。これがないと自動検出は動作しません。
+KomaKun! は OCR、修復、翻訳に外部 API を使用します。LLM プロバイダーに Replicate を選べば、**API キーは 2 つだけ**で全機能が使えます。
 
-#### 作成手順
+#### 1. Google Cloud Vision API キー（OCR）— 必須
+
+OCR（マンガページのテキスト検出）に使用します。これがないと自動検出は動作しません。
+
+> ⚠️ これは **Google Cloud** の API キーであり、下記の Gemini LLM モデル用 Google AI Studio キーとは**別物**です。
+
+**作成手順：**
 
 1. [Google Cloud Console](https://console.cloud.google.com/) にアクセス。
 2. 新しいプロジェクトを作成（または既存のものを選択）。
@@ -253,37 +293,50 @@ Google Cloud API キーは OCR（マンガページのテキスト検出）に**
 7. 生成されたキーをコピー。
 8. *（推奨）* **API キーを編集** → **API の制限** で **キーを制限** を選び、**Cloud Vision API** のみを選択。
 
-#### KomaKun! での設定
+**KomaKun! での設定：**
+設定 → **Vision API** → キーを貼り付け → **検証して保存**。
 
-1. ブラウザで KomaKun! を開く。
-2. 右上のアバターをクリック → **設定**。
-3. **モデル設定** タブを開く。
-4. AI プロバイダーとして **Google** を選択。
-5. API キーを貼り付け、**検証して保存** をクリック。
+> すべてのキーはブラウザのローカルストレージ（IndexedDB）にのみ保存されます。各 API エンドポイント以外のサーバーに送信されることはありません。
 
-> キーはブラウザのローカルストレージ（IndexedDB）にのみ保存されます。Google の API エンドポイント以外のサーバーに送信されることはありません。
+#### 2. Replicate API キー（修復 + LLM 翻訳）— 推奨
 
-### 翻訳モデル（Bring Your Own Key）
+Replicate キー 1 つで **LaMa 修復**（スマート消字）**と** LLM 翻訳の**両方**が使えます。推奨のセットアップで、全ワークフローに必要なキーは合計 2 つだけです。
 
-OCR は Google Cloud Vision で動作しますが、**翻訳**は複数の LLM プロバイダーに対応しています：
+**作成手順：**
 
-| プロバイダー | モデル | キーの取得先 |
-|-------------|--------|------------|
-| **Google** (Gemini) | Gemini 2.0 Flash, Gemini 2.5 Pro | [Google AI Studio](https://aistudio.google.com/apikey) |
-| **OpenAI** | GPT-4o, GPT-4o mini | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| **Anthropic** | Claude Sonnet, Claude Haiku | [Anthropic Console](https://console.anthropic.com/) |
+1. [replicate.com](https://replicate.com/) にアクセスしてサインイン。
+2. **Account Settings → API tokens** に移動。
+3. 新しいトークンを作成してコピー。
 
-**設定 → モデル設定** でいつでもプロバイダーを切り替え可能。各プロバイダーのキーは個別に保存されます。
+**KomaKun! での設定：**
+1. 設定 → **修復** → **Replicate** を選択 → キーを貼り付け → **Replicate キーを保存**。
+2. 設定 → **モデル設定** → AI プロバイダーとして **Replicate** を選択 → モデルを選択 → **検証して保存**。
+   ステップ 1 の Replicate API キーが自動的に共有されるため、再入力は不要です。
 
-### 従量課金モード
+**利用可能な Replicate モデル：**
 
-API キーをお持ちでない方のために、KomaKun! は**従量課金**モードも提供しています：
+| モデル | 説明 |
+|--------|------|
+| DeepSeek V3.1 | 優れた多言語翻訳 |
+| GPT-5.2 | Replicate 経由で OpenAI 最新モデル |
+| GPT-4.1 | コストと品質のバランス |
+| Gemini 2.5 Flash | 高速・低コスト |
+| Kimi K2.5 | Moonshot AI のフラッグシップ |
 
-- アプリ内で **Stripe** またはクレジットカード/デビットカードでクレジットを購入。
-- クレジットは OCR の呼び出しと翻訳リクエストごとに消費されます。
-- サブスクリプション不要——使った分だけお支払い。
+#### 3. その他の LLM プロバイダー（任意）
 
-> 従量課金モードなら API キーの管理が不要です。ライトユーザーや小規模チームに最適。
+他の LLM プロバイダーを使いたい場合、以下にも対応しています：
+
+| プロバイダー | モデル | API キーの取得先 |
+|-------------|--------|-----------------|
+| **Google (Gemini)** | Gemini 3 Flash, Gemini 2.5 Flash, Gemini 3.1 Pro | [Google AI Studio](https://aistudio.google.com/) |
+| **OpenAI** | GPT-5.2, GPT-5 Mini, GPT-4.1, GPT-5.2 Pro | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| **OpenRouter** | 100 以上のモデル（動的取得） | [OpenRouter](https://openrouter.ai/keys) |
+| **ローカル** | OpenAI 互換エンドポイント（Ollama 等） | キー不要 |
+
+> ⚠️ **Google (Gemini)** の API キーは [Google AI Studio](https://aistudio.google.com/) から取得します。Google Cloud Console からではありません。OCR 用の Cloud Vision API キーとは別のキーです。
+
+**設定 → モデル設定** でいつでもプロバイダーを切り替えられます。
 
 ### 本番ビルド
 
@@ -300,9 +353,8 @@ pnpm start   # 本番ビルドを起動
 - **Zustand**（状態管理）
 - **next-intl**（i18n: en, zh, zh-TW, ja）
 - **IndexedDB**（ローカルデータ永続化）
+- **react-konva**（キャンバスレンダリング）
 
 ### ライセンス
 
 GNU Affero General Public License v3.0 — 無料で利用、フォーク、セルフホスト可能。ネットワーク経由でサービスを提供する改変版も、同じライセンスでソースを公開する必要があります。
-
-</details>

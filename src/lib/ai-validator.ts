@@ -3,10 +3,11 @@
  * Makes lightweight API calls to validate keys before saving.
  */
 
-export type AIProvider = "google" | "openai" | "openrouter" | "local";
+export type AIProvider = "google" | "openai" | "openrouter" | "replicate" | "local";
 
 export const AI_PROVIDERS: { value: AIProvider; label: string }[] = [
   { value: "openrouter", label: "OpenRouter" },
+  { value: "replicate", label: "Replicate" },
   { value: "google", label: "Google (Gemini)" },
   { value: "openai", label: "OpenAI" },
   { value: "local", label: "Local (OpenAI Compatible)" },
@@ -26,6 +27,13 @@ export const AI_MODELS: Record<AIProvider, { value: string; label: string }[]> =
       { value: "gpt-5.2-pro-2025-12-11", label: "GPT-5.2 Pro" },
     ],
     openrouter: [], // dynamically fetched from OpenRouter API
+    replicate: [
+      { value: "deepseek-ai/deepseek-v3.1", label: "DeepSeek V3.1" },
+      { value: "openai/gpt-5.2", label: "GPT-5.2" },
+      { value: "openai/gpt-4.1", label: "GPT-4.1" },
+      { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+      { value: "moonshotai/kimi-k2.5", label: "Kimi K2.5" },
+    ],
     local: [],
   };
 
@@ -78,6 +86,19 @@ export async function validateAPIKey(
         if (res.ok) return { valid: true };
         if (res.status === 401) {
           return { valid: false, error: "Invalid OpenRouter API key" };
+        }
+        return { valid: false, error: `HTTP ${res.status}` };
+      }
+
+      case "replicate": {
+        // Validate Replicate API key by listing models
+        const res = await fetch("https://api.replicate.com/v1/models", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (res.ok) return { valid: true };
+        if (res.status === 401) {
+          return { valid: false, error: "Invalid Replicate API key" };
         }
         return { valid: false, error: `HTTP ${res.status}` };
       }

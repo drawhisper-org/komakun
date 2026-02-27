@@ -445,7 +445,11 @@ export function EditorRightSidebar() {
       toast.error(t("translateFailed"), { description: t("noModelSelected") });
       return;
     }
-    if (aiProvider !== "local" && !apiKeys[aiProvider]) {
+    if (aiProvider !== "local" && aiProvider !== "replicate" && !apiKeys[aiProvider]) {
+      toast.error(t("translateFailed"), { description: t("aiKeyRequired") });
+      return;
+    }
+    if (aiProvider === "replicate" && !replicateApiKey) {
       toast.error(t("translateFailed"), { description: t("aiKeyRequired") });
       return;
     }
@@ -455,7 +459,7 @@ export function EditorRightSidebar() {
       const results = await translateTextBlocks({
         provider: aiProvider,
         model: effectiveModel,
-        apiKey: apiKeys[aiProvider] ?? "",
+        apiKey: aiProvider === "replicate" ? replicateApiKey : (apiKeys[aiProvider] ?? ""),
         targetLanguage: targetLanguage || "English",
         textBlocks: blocksToTranslate.map((b) => ({
           id: b.id,

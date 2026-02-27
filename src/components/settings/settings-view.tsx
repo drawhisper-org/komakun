@@ -468,6 +468,9 @@ function AIConfigSection() {
     if (provider === "local") {
       setDraftLlmUrl(localLlmUrl);
       setDraftLlmModel(localLlmModel);
+    } else if (provider === "replicate") {
+      const models = AI_MODELS[provider];
+      setLocalModel(models[0]?.value ?? "");
     } else {
       const models =
         provider === "openrouter"
@@ -495,6 +498,20 @@ function AIConfigSection() {
         } else {
           toast.error(t("validationFailed"), { description: result.error || t("connectionFailed") });
         }
+      } else if (localProvider === "replicate") {
+        // Replicate uses the shared replicateApiKey
+        if (!replicateApiKey) {
+          toast.error(t("validationFailed"), { description: t("replicateKeyRequiredForLlm") });
+        } else {
+          const result = await validateAndSetAIConfig(localProvider, localModel, replicateApiKey);
+          if (result.success) {
+            toast.success(t("apiKeyValidated"), {
+              description: `Replicate \u2014 ${localModel}`,
+            });
+          } else {
+            toast.error(t("validationFailed"), { description: result.error || t("invalidApiKey") });
+          }
+        }
       } else {
         const result = await validateAndSetAIConfig(localProvider, localModel, localKey);
         if (result.success) {
@@ -510,7 +527,7 @@ function AIConfigSection() {
     } finally {
       setValidating(false);
     }
-  }, [localProvider, localModel, localKey, draftLlmUrl, draftLlmModel, validateAndSetAIConfig, validateAndSetLocalLlm, t]);
+  }, [localProvider, localModel, localKey, replicateApiKey, draftLlmUrl, draftLlmModel, validateAndSetAIConfig, validateAndSetLocalLlm, t]);
 
   const handleValidateVisionKey = useCallback(async () => {
     setValidatingVision(true);
@@ -661,6 +678,33 @@ function AIConfigSection() {
             </SettingRow>
 
             <SettingRow label={t("apiKey")} vertical>
+            {localProvider === "replicate" ? (
+              /* Replicate uses the shared API key from the Inpainting section */
+              replicateApiKey ? (
+                <div className="flex items-center gap-2 max-w-sm">
+                  <div className="flex-1 flex items-center gap-1.5 text-xs">
+                    <CheckCircleIcon weight="fill" className="h-3.5 w-3.5 text-green-500" />
+                    <span className="text-on-surface-variant/60">{t("replicateKeyShared")}</span>
+                  </div>
+                  <Button
+                    onClick={handleValidateAndSave}
+                    disabled={validating}
+                    size="sm"
+                    className="h-9 gap-1.5 bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90"
+                  >
+                    {validating ? (
+                      <SpinnerGapIcon weight="fill" className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircleIcon weight="fill" className="h-3.5 w-3.5" />
+                    )}
+                    {validating ? t("validating") : t("validateAndSave")}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-on-surface-variant/60">{t("replicateKeyRequiredForLlm")}</p>
+              )
+            ) : (
+              <>
               <div className="flex items-center gap-2 max-w-sm">
                 <div className="relative flex-1">
                   <KeyIcon weight="fill" className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-variant/40" />
@@ -694,6 +738,8 @@ function AIConfigSection() {
                   </span>
                 </div>
               )}
+              </>
+            )}
             </SettingRow>
           </>
         )}

@@ -12,7 +12,7 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
  * Returns structured translations mapped to block IDs.
  *
  * Body: {
- *   provider: "google" | "openai" | "openrouter" | "local",
+ *   provider: "google" | "openai" | "openrouter" | "replicate" | "local",
  *   model: string,
  *   apiKey: string,
  *   targetLanguage: string,
@@ -67,6 +67,16 @@ function createModel(
             "HTTP-Referer": "https://komakun.app",
             "X-Title": "KomaKun Manga Translation",
           },
+        },
+      });
+
+    case "replicate":
+      return new ChatOpenAI({
+        model,
+        apiKey,
+        temperature: 0.3,
+        configuration: {
+          baseURL: "https://api.replicate.com/v1",
         },
       });
 
@@ -151,12 +161,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (provider !== "local" && !apiKey) {
+    if (provider !== "local" && provider !== "replicate" && !apiKey) {
       return NextResponse.json(
         { error: "API key is required for cloud providers" },
         { status: 400 }
       );
     }
+
+    // For replicate, the key comes from the shared replicateApiKey field
+    const effectiveApiKey = provider === "replicate" ? (apiKey || body.replicateApiKey || "") : apiKey;
 
     if (!textBlocks?.length) {
       return NextResponse.json(
@@ -165,7 +178,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const llm = createModel(provider, model, apiKey, localEndpoint);
+    const llm = createModel(provider, model, effectiveApiKey, localEndpoint);
     const prompt = buildPrompt(targetLanguage, textBlocks);
 
     // Try structured output first, fall back to raw completion + parse

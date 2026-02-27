@@ -112,6 +112,9 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
   const fontWeight = block.fontWeight || "normal";
   const fontStyleVal = block.fontStyle || "normal";
   const isVertical = block.textDirection === "vertical";
+  const letterSpacing = block.letterSpacing ?? 0;
+  const strokeEnabled = block.strokeEnabled ?? false;
+  const strokeW = block.strokeWidth ?? 4;
 
   // Apply rotation around the block origin
   if (rotation !== 0) {
@@ -122,18 +125,33 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
 
   const fontStr = `${fontStyleVal} ${fontWeight} ${fontSize}px ${fontFamily}`;
   ctx.font = fontStr;
-  ctx.fillStyle = fontColor;
+
+  // Apply letter spacing so measureText & fillText/strokeText account for it
+  if (letterSpacing !== 0 && "letterSpacing" in ctx) {
+    (ctx as unknown as Record<string, string>).letterSpacing = `${letterSpacing}px`;
+  }
 
   if (isVertical) {
     // Vertical text: multi-column right-to-left like manga
-    const chars = displayText.replace(/\n/g, "").split("");
-    const charH = fontSize * 1.15;
-    const colW = fontSize * lineH; // lineHeight drives column gap
+    // Newlines force a column break, then auto-wrap within each segment.
+    const charH = fontSize * 1.15 + letterSpacing;
+    const colW = fontSize * lineH;
     const charsPerCol = Math.max(1, Math.floor(block.height / charH));
-    const numCols = Math.ceil(chars.length / charsPerCol);
 
-    // Alignment: "left"→right edge, "center"→center, "right"→left edge
-    const totalColumnsW = numCols * colW;
+    const segments = displayText.split("\n");
+    const columns: string[][] = [];
+    for (const seg of segments) {
+      const chars = seg.split("");
+      if (chars.length === 0) {
+        columns.push([]);
+      } else {
+        for (let i = 0; i < chars.length; i += charsPerCol) {
+          columns.push(chars.slice(i, i + charsPerCol));
+        }
+      }
+    }
+
+    const totalColumnsW = columns.length * colW;
     const slack = Math.max(0, block.width - totalColumnsW);
     const groupOffset =
       align === "center" ? slack / 2 :
@@ -143,16 +161,30 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
 
-    for (let i = 0; i < chars.length; i++) {
-      const colIdx = Math.floor(i / charsPerCol);
-      const rowIdx = i % charsPerCol;
-      // Right-to-left columns shifted by alignment
-      const cx = block.x + groupOffset + (totalColumnsW - (colIdx + 0.5) * colW);
-      const cy = block.y + rowIdx * charH;
-      ctx.fillText(chars[i], cx, cy);
+    // Clip to block bounds (matches Konva Group clip)
+    ctx.beginPath();
+    ctx.rect(block.x, block.y, block.width, block.height);
+    ctx.clip();
+
+    for (let ci = 0; ci < columns.length; ci++) {
+      const col = columns[ci];
+      const cx = block.x + groupOffset + (totalColumnsW - (ci + 0.5) * colW);
+      for (let ri = 0; ri < col.length; ri++) {
+        const cy = block.y + ri * charH;
+        if (strokeEnabled) {
+          ctx.fillStyle = "white";
+          ctx.strokeStyle = "white";
+          ctx.lineWidth = strokeW;
+          ctx.lineJoin = "round";
+          ctx.strokeText(col[ri], cx, cy);
+          ctx.fillText(col[ri], cx, cy);
+        }
+        ctx.fillStyle = fontColor;
+        ctx.fillText(col[ri], cx, cy);
+      }
     }
   } else {
-    // Horizontal text — word wrap
+    // Horizontal text — word wrap (CJK-aware, matching Konva behavior)
     ctx.textAlign = align as CanvasTextAlign;
     ctx.textBaseline = "top";
 
@@ -168,28 +200,69 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
     else xPos = block.x;
 
     lines.forEach((line, i) => {
-      ctx.fillText(line, xPos, startY + i * lineHeightPx);
+      const ly = startY + i * lineHeightPx;
+      if (strokeEnabled) {
+        ctx.fillStyle = "white";
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = strokeW;
+        ctx.lineJoin = "round";
+        ctx.strokeText(line, xPos, ly);
+        ctx.fillText(line, xPos, ly);
+      }
+      ctx.fillStyle = fontColor;
+      ctx.fillText(line, xPos, ly);
     });
   }
 
   ctx.restore();
 }
 
-/** Simple word-wrap for canvas */
+/**
+ * CJK-aware word-wrap for Canvas 2D — matches Konva's `wrap: "word"` behaviour.
+ *
+ * Konva treats each CJK ideograph / kana as its own wrappable unit while still
+ * keeping Latin words together.  We replicate that here by first tokenising the
+ * paragraph into "tokens" (Latin words = one token, each CJK char = one token)
+ * and then greedily fitting them onto lines.
+ */
+const CJK_RANGE =
+  /[\u2E80-\u2FFF\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF]/;
+
+function tokenise(text: string): string[] {
+  const tokens: string[] = [];
+  let buf = "";
+  for (const ch of text) {
+    if (CJK_RANGE.test(ch)) {
+      if (buf) { tokens.push(buf); buf = ""; }
+      tokens.push(ch);
+    } else if (/\s/.test(ch)) {
+      if (buf) { tokens.push(buf); buf = ""; }
+      tokens.push(ch); // keep whitespace as a separate token
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf) tokens.push(buf);
+  return tokens;
+}
+
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const paragraphs = text.split("\n");
   const lines: string[] = [];
 
   for (const para of paragraphs) {
-    const words = para.split(/\s+/);
+    const tokens = tokenise(para);
     let currentLine = "";
 
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const metrics = ctx.measureText(testLine);
-      if (metrics.width > maxWidth && currentLine) {
+    for (const token of tokens) {
+      // Skip standalone whitespace at start of a new line
+      if (!currentLine && /^\s+$/.test(token)) continue;
+
+      const testLine = currentLine + token;
+      if (ctx.measureText(testLine).width > maxWidth && currentLine) {
         lines.push(currentLine);
-        currentLine = word;
+        // Don't start a new line with whitespace
+        currentLine = /^\s+$/.test(token) ? "" : token;
       } else {
         currentLine = testLine;
       }

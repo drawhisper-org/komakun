@@ -324,6 +324,8 @@
     "replicateApiKey": "Replicate API Key",
     "replicateApiKeyDesc": "來自 replicate.com 的 API 令牌，用於 LaMa 圖像修復模型。",
     "replicateKeySaved": "Replicate API Key 已儲存！",
+    "replicateKeyShared": "使用圖像修復部分的 Replicate API 金鑰",
+    "replicateKeyRequiredForLlm": "請先在下方圖像修復部分設定 Replicate API 金鑰",
     "saveReplicateKey": "儲存 Replicate Key",
     "localEndpoint": "本地端點 URL",
     "localEndpointDesc": "本地部署的 LaMa 服務地址（如 http://localhost:8080）。",
