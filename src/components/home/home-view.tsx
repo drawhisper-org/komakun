@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   EyeglassesIcon,
   StarIcon,
@@ -134,7 +135,10 @@ export function HomeView() {
       } else {
         // Image files — create new project
         await createNewProject();
-        await addPages(files);
+        const result = await addPages(files);
+        if (result?.skippedOversize) {
+          toast.error("File too large", { description: `${result.skippedOversize} image(s) exceeded the 10 MB limit and were skipped.` });
+        }
         const state = useProjectStore.getState();
         if (state.projectId) {
           await state.saveCurrentProject();

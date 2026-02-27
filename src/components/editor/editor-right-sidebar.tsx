@@ -71,12 +71,14 @@ import { useOcrUiStore } from "@/stores/ocr-store";
 import { useEditorSelectionStore } from "@/stores/editor-selection-store";
 import { useUserStore } from "@/stores/user-store";
 import { useHistoryStore } from "@/stores/history-store";
+import { useLayerVisibilityStore } from "@/stores/layer-visibility-store";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { detectText, cropImageRegion, cropAndMaskRegion } from "@/lib/google-vision";
 import { exportPageAsPng, exportPageAsPsd, exportProjectAsZip, exportProjectAsPsdZip } from "@/lib/export-utils";
 import { inpaintImage } from "@/lib/lama-inpaint";
 import { translateTextBlocks } from "@/lib/translate-service";
+import { useRecentFontsStore } from "@/stores/recent-fonts-store";
 import { track } from "@vercel/analytics";
 
 /* \u2500\u2500 Platform detection \u2500\u2500 */
@@ -397,10 +399,19 @@ export function EditorRightSidebar() {
       return;
     }
 
+    // Determine source image: if cleaned layer is visible and a cleaned image
+    // already exists, iteratively clean from the cleaned image; otherwise use original.
+    const cleanedLayerVisible = useLayerVisibilityStore.getState().visibility.cleaned;
+    const useCleanedAsSource =
+      cleanedLayerVisible && !!activePage.cleanedImageBase64;
+    const sourceBase64 = useCleanedAsSource
+      ? activePage.cleanedImageBase64!
+      : activePage.originalImageBase64;
+
     setCleanLoading(true);
     try {
       const img = new Image();
-      img.src = activePage.originalImageBase64;
+      img.src = sourceBase64;
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
         img.onerror = () => reject(new Error("Failed to load image"));
@@ -414,7 +425,8 @@ export function EditorRightSidebar() {
           mode: inpaintMode,
           replicateApiKey,
           localEndpoint: localInpaintUrl,
-        }
+        },
+        sourceBase64
       );
 
       setCleanedImage(activePage.id, cleanedBase64);
@@ -702,7 +714,7 @@ export function EditorRightSidebar() {
               description={t("cleanStepDesc")}
               variant={activePage?.cleanedImageBase64 ? "done" : "secondary"}
               spinning={cleanLoading}
-              disabled={!activePage || cleanLoading || !activePage?.ocrCompleted}
+              disabled={!activePage || cleanLoading || (!activePage?.ocrCompleted && !(activePage?.inpaintStrokes && activePage.inpaintStrokes.length > 0))}
               onClick={handleCleanBackground}
               step={2}
             />
@@ -1135,12 +1147,23 @@ function DesignPanel() {
   const strokeEnabled = selectedBlock?.strokeEnabled ?? false;
   const strokeWidth = selectedBlock?.strokeWidth ?? 4;
 
-  const comicFonts = MANGA_FONTS.filter((f) => f.category === "comic");
-  const handFonts = MANGA_FONTS.filter((f) => f.category === "handwriting");
-  const jpFonts = MANGA_FONTS.filter((f) => f.category === "japanese");
-  const cnFonts = MANGA_FONTS.filter((f) => f.category === "chinese");
-  const krFonts = MANGA_FONTS.filter((f) => f.category === "korean");
-  const sysFonts = MANGA_FONTS.filter((f) => f.category === "system");
+  const recentFonts = useRecentFontsStore((s) => s.recentFonts);
+  const trackFont = useRecentFontsStore((s) => s.trackFont);
+
+  const recentFontEntries = useMemo(
+    () => recentFonts
+      .map((v) => MANGA_FONTS.find((f) => f.value === v))
+      .filter((f): f is NonNullable<typeof f> => !!f),
+    [recentFonts]
+  );
+
+  const recentSet = useMemo(() => new Set(recentFonts), [recentFonts]);
+  const comicFonts = MANGA_FONTS.filter((f) => f.category === "comic" && !recentSet.has(f.value));
+  const handFonts = MANGA_FONTS.filter((f) => f.category === "handwriting" && !recentSet.has(f.value));
+  const jpFonts = MANGA_FONTS.filter((f) => f.category === "japanese" && !recentSet.has(f.value));
+  const cnFonts = MANGA_FONTS.filter((f) => f.category === "chinese" && !recentSet.has(f.value));
+  const krFonts = MANGA_FONTS.filter((f) => f.category === "korean" && !recentSet.has(f.value));
+  const sysFonts = MANGA_FONTS.filter((f) => f.category === "system" && !recentSet.has(f.value));
 
   if (!selectedBlock) {
     return (
@@ -1160,12 +1183,22 @@ function DesignPanel() {
         </Label>
         <Select
           value={fontFamily}
-          onValueChange={(v) => update({ fontFamily: v })}
+          onValueChange={(v) => { trackFont(v); update({ fontFamily: v }); }}
         >
           <SelectTrigger className="h-8 border-outline-variant/25 bg-surface-variant/10 text-[12px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {recentFontEntries.length > 0 && (
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-on-surface-variant/40">★ Recent</SelectLabel>
+                {recentFontEntries.map((f) => (
+                  <SelectItem key={`recent-${f.value}`} value={f.value} style={{ fontFamily: f.value }}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
             <SelectGroup>
               <SelectLabel className="text-[10px] text-on-surface-variant/40">Comic</SelectLabel>
               {comicFonts.map((f) => (

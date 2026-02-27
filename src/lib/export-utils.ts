@@ -110,6 +110,73 @@ async function renderPageToBlob(page: PageState, watermark?: WatermarkConfig): P
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Manga text helpers — mirrors konva-stage.tsx tokeniser & normaliser       */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+function normalizeMangaText(text: string): string {
+  let s = text;
+  s = s.replace(/\.{3,}/g, "…");
+  s = s.replace(/。{2,}/g, "…");
+  s = s.replace(/…{2,}/g, "……");
+  return s;
+}
+
+const EXPORT_COMBINED_PUNCT_RE = /^[!?！？]{2}$/;
+const EXPORT_EM_DASH_CHARS = new Set(["—", "─", "―", "ー"]);
+const EXPORT_MIDDLE_DOT_CHARS = new Set(["·", "・", "‧", "⋅", "•"]);
+const EXPORT_WAVE_DASH_CHARS = new Set(["~", "～", "〜"]);
+
+type ExVToken =
+  | { type: "char"; text: string }
+  | { type: "combined"; text: string }
+  | { type: "dots"; text: string; count: number }
+  | { type: "dash"; count: number }
+  | { type: "wave"; text: string };
+
+function tokenizeVerticalExport(text: string): ExVToken[] {
+  const chars = Array.from(text);
+  const tokens: ExVToken[] = [];
+  let i = 0;
+  while (i < chars.length) {
+    if (i + 1 < chars.length) {
+      const pair = chars[i] + chars[i + 1];
+      if (EXPORT_COMBINED_PUNCT_RE.test(pair)) {
+        tokens.push({ type: "combined", text: pair });
+        i += 2;
+        continue;
+      }
+    }
+    if (EXPORT_EM_DASH_CHARS.has(chars[i])) {
+      let count = 0;
+      while (i < chars.length && EXPORT_EM_DASH_CHARS.has(chars[i])) { count++; i++; }
+      tokens.push({ type: "dash", count });
+      continue;
+    }
+    if (EXPORT_MIDDLE_DOT_CHARS.has(chars[i])) {
+      let count = 0;
+      const dotChar = chars[i];
+      while (i < chars.length && EXPORT_MIDDLE_DOT_CHARS.has(chars[i])) { count++; i++; }
+      tokens.push({ type: "dots", text: dotChar, count });
+      continue;
+    }
+    if (EXPORT_WAVE_DASH_CHARS.has(chars[i])) {
+      tokens.push({ type: "wave", text: chars[i] });
+      i++;
+      continue;
+    }
+    tokens.push({ type: "char", text: chars[i] });
+    i++;
+  }
+  return tokens;
+}
+
+function tokenCellCountExport(t: ExVToken): number {
+  if (t.type === "dash") return t.count;
+  if (t.type === "dots") return 1;
+  return 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
 /*  Text rendering on 2D canvas — mirrors konva-stage TextBlockNode           */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -148,22 +215,32 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
   }
 
   if (isVertical) {
-    // Vertical text: multi-column right-to-left like manga
-    // Newlines force a column break, then auto-wrap within each segment.
+    const normalizedText = normalizeMangaText(displayText);
     const charH = fontSize * 1.15 + letterSpacing;
     const colW = fontSize * lineH;
     const charsPerCol = Math.max(1, Math.floor(block.height / charH));
 
-    const segments = displayText.split("\n");
-    const columns: string[][] = [];
+    // Tokenize & build columns (mirrors konva-stage)
+    const segments = normalizedText.split("\n");
+    const columns: ExVToken[][] = [];
     for (const seg of segments) {
-      const chars = seg.split("");
-      if (chars.length === 0) {
+      const tokens = tokenizeVerticalExport(seg);
+      if (tokens.length === 0) {
         columns.push([]);
       } else {
-        for (let i = 0; i < chars.length; i += charsPerCol) {
-          columns.push(chars.slice(i, i + charsPerCol));
+        let col: ExVToken[] = [];
+        let cells = 0;
+        for (const tok of tokens) {
+          const c = tokenCellCountExport(tok);
+          if (cells + c > charsPerCol && col.length > 0) {
+            columns.push(col);
+            col = [];
+            cells = 0;
+          }
+          col.push(tok);
+          cells += c;
         }
+        if (col.length > 0) columns.push(col);
       }
     }
 
@@ -174,9 +251,6 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
       align === "right" ? slack :
       0;
 
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-
     // Clip to block bounds (matches Konva Group clip)
     ctx.beginPath();
     ctx.rect(block.x, block.y, block.width, block.height);
@@ -185,18 +259,120 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
     for (let ci = 0; ci < columns.length; ci++) {
       const col = columns[ci];
       const cx = block.x + groupOffset + (totalColumnsW - (ci + 0.5) * colW);
-      for (let ri = 0; ri < col.length; ri++) {
-        const cy = block.y + ri * charH;
+      let cellIndex = 0;
+
+      for (const token of col) {
+        const tokenY = block.y + cellIndex * charH;
+        const cellsUsed = tokenCellCountExport(token);
+        cellIndex += cellsUsed;
+
+        if (token.type === "combined") {
+          // Tate-chu-yoko: horizontal pair in one cell, ~72% font size
+          const pairFontSize = fontSize * 0.72;
+          ctx.font = `${fontStyleVal} ${fontWeight} ${pairFontSize}px ${fontFamily}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const midY = tokenY + charH / 2;
+          if (strokeEnabled) {
+            ctx.fillStyle = "white";
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = strokeW * 0.7;
+            ctx.lineJoin = "round";
+            ctx.strokeText(token.text, cx, midY);
+            ctx.fillText(token.text, cx, midY);
+          }
+          ctx.fillStyle = fontColor;
+          ctx.fillText(token.text, cx, midY);
+          // Restore normal font
+          ctx.font = fontStr;
+          continue;
+        }
+
+        if (token.type === "dots") {
+          // Middle dots with tight spacing within 1 cell
+          const dotFontSize = fontSize * 0.6;
+          ctx.font = `${fontStyleVal} ${fontWeight} ${dotFontSize}px ${fontFamily}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const dotSpacing = charH * 0.35;
+          const totalDotsH = token.count * dotSpacing;
+          const offsetY = tokenY + (charH - totalDotsH) / 2;
+          for (let d = 0; d < token.count; d++) {
+            const dY = offsetY + d * dotSpacing + dotSpacing / 2;
+            if (strokeEnabled) {
+              ctx.fillStyle = "white";
+              ctx.strokeStyle = "white";
+              ctx.lineWidth = strokeW * 0.5;
+              ctx.lineJoin = "round";
+              ctx.strokeText(token.text, cx, dY);
+              ctx.fillText(token.text, cx, dY);
+            }
+            ctx.fillStyle = fontColor;
+            ctx.fillText(token.text, cx, dY);
+          }
+          ctx.font = fontStr;
+          continue;
+        }
+
+        if (token.type === "dash") {
+          // Em-dash as a continuous vertical line
+          const dashH = cellsUsed * charH;
+          const lineThickness = Math.max(1.5, fontSize * 0.065);
+          const lineX = cx - lineThickness / 2;
+          const marginY = charH * 0.08;
+          if (strokeEnabled) {
+            ctx.fillStyle = "white";
+            ctx.fillRect(
+              lineX - strokeW * 0.4,
+              tokenY + marginY,
+              lineThickness + strokeW * 0.8,
+              dashH - marginY * 2
+            );
+          }
+          ctx.fillStyle = fontColor;
+          ctx.fillRect(lineX, tokenY + marginY, lineThickness, dashH - marginY * 2);
+          continue;
+        }
+
+        if (token.type === "wave") {
+          // Wave dash (~) — render rotated 90° CW
+          ctx.save();
+          ctx.font = fontStr;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const waveCenterX = cx;
+          const waveCenterY = tokenY + charH / 2;
+          ctx.translate(waveCenterX, waveCenterY);
+          ctx.rotate(Math.PI / 2);
+          if (strokeEnabled) {
+            ctx.fillStyle = "white";
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = strokeW;
+            ctx.lineJoin = "round";
+            ctx.strokeText(token.text, 0, 0);
+            ctx.fillText(token.text, 0, 0);
+          }
+          ctx.fillStyle = fontColor;
+          ctx.fillText(token.text, 0, 0);
+          ctx.restore();
+          // Restore font after ctx.restore
+          ctx.font = fontStr;
+          continue;
+        }
+
+        // Normal character
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
         if (strokeEnabled) {
           ctx.fillStyle = "white";
           ctx.strokeStyle = "white";
           ctx.lineWidth = strokeW;
           ctx.lineJoin = "round";
-          ctx.strokeText(col[ri], cx, cy);
-          ctx.fillText(col[ri], cx, cy);
+          ctx.strokeText(token.text, cx, tokenY);
+          ctx.fillText(token.text, cx, tokenY);
         }
         ctx.fillStyle = fontColor;
-        ctx.fillText(col[ri], cx, cy);
+        ctx.fillText(token.text, cx, tokenY);
       }
     }
   } else {
@@ -204,7 +380,7 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
     ctx.textAlign = align as CanvasTextAlign;
     ctx.textBaseline = "top";
 
-    const lines = wrapText(ctx, displayText, block.width);
+    const lines = wrapText(ctx, normalizeMangaText(displayText), block.width);
     const lineHeightPx = fontSize * lineH;
     const totalTextH = lines.length * lineHeightPx;
     // Vertical align middle like Konva
@@ -254,6 +430,11 @@ function tokenise(text: string): string[] {
     } else if (/\s/.test(ch)) {
       if (buf) { tokens.push(buf); buf = ""; }
       tokens.push(ch); // keep whitespace as a separate token
+    } else if (ch === "-") {
+      // Hyphen is a word-break opportunity — keep it with the preceding text
+      buf += ch;
+      tokens.push(buf);
+      buf = "";
     } else {
       buf += ch;
     }
@@ -283,7 +464,24 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
         currentLine = testLine;
       }
     }
-    lines.push(currentLine || "");
+
+    // If the final accumulated line is wider than maxWidth, break it char-by-char
+    // (matches Konva's fallback when a single word exceeds the block width)
+    if (currentLine && ctx.measureText(currentLine).width > maxWidth) {
+      let charLine = "";
+      for (const ch of currentLine) {
+        const test = charLine + ch;
+        if (ctx.measureText(test).width > maxWidth && charLine) {
+          lines.push(charLine);
+          charLine = ch;
+        } else {
+          charLine = test;
+        }
+      }
+      lines.push(charLine || "");
+    } else {
+      lines.push(currentLine || "");
+    }
   }
 
   return lines;

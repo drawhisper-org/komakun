@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   ImageIcon,
   StackIcon,
@@ -64,12 +65,17 @@ export function EditorLeftSidebar({ projectId, onManagePages }: EditorLeftSideba
   );
 
   const handleAddFiles = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
-      if (files.length > 0) addPages(files);
+      if (files.length > 0) {
+        const result = await addPages(files);
+        if (result?.skippedOversize) {
+          toast.error(t("fileTooLarge"), { description: t("fileTooLargeDesc", { count: result.skippedOversize }) });
+        }
+      }
       e.target.value = "";
     },
-    [addPages]
+    [addPages, t]
   );
 
   return (

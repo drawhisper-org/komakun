@@ -201,10 +201,12 @@ export async function inpaintImage(
   page: PageState,
   imageWidth: number,
   imageHeight: number,
-  options: InpaintOptions
+  options: InpaintOptions,
+  /** Override the source image (e.g. use cleaned image for iterative cleaning). Defaults to page.originalImageBase64. */
+  sourceImage?: string
 ): Promise<string> {
   const maskBase64 = generateMask(page, imageWidth, imageHeight);
-  const imageBase64 = page.originalImageBase64;
+  const imageBase64 = sourceImage || page.originalImageBase64;
 
   if (options.mode === "replicate") {
     if (!options.replicateApiKey) {

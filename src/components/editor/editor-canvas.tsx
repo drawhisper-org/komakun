@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import dynamic from "next/dynamic";
 import { CloudArrowUpIcon, ImageIcon, FileImageIcon } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 import { useProjectStore } from "@/stores/project-store";
 import type { ActiveTool } from "@/components/editor/canvas/konva-stage";
 
@@ -27,13 +28,18 @@ export function EditorCanvas({ viewport, onViewportChange, activeTool, fitSignal
   const pages = useProjectStore((s) => s.pages);
 
   const handleDrop = useCallback(
-    (e: React.DragEvent) => {
+    async (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const files = Array.from(e.dataTransfer.files);
-      if (files.length > 0) addPages(files);
+      if (files.length > 0) {
+        const result = await addPages(files);
+        if (result?.skippedOversize) {
+          toast.error(t("fileTooLarge"), { description: t("fileTooLargeDesc", { count: result.skippedOversize }) });
+        }
+      }
     },
-    [addPages]
+    [addPages, t]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -42,12 +48,17 @@ export function EditorCanvas({ viewport, onViewportChange, activeTool, fitSignal
   }, []);
 
   const handleFileInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
-      if (files.length > 0) addPages(files);
+      if (files.length > 0) {
+        const result = await addPages(files);
+        if (result?.skippedOversize) {
+          toast.error(t("fileTooLarge"), { description: t("fileTooLargeDesc", { count: result.skippedOversize }) });
+        }
+      }
       e.target.value = "";
     },
-    [addPages]
+    [addPages, t]
   );
 
   // Pages loaded — show Konva canvas
@@ -107,7 +118,7 @@ export function EditorCanvas({ viewport, onViewportChange, activeTool, fitSignal
             <span className="rounded-full bg-surface-variant/30 px-2.5 py-0.5">JPG</span>
             <span className="rounded-full bg-surface-variant/30 px-2.5 py-0.5">WEBP</span>
             <span className="text-outline-variant/50">•</span>
-            <span>Max 80 pages, 5MB each</span>
+            <span>Max 80 pages, 10MB each</span>
           </div>
 
           <div className="mt-1 flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg transition-all group-hover:shadow-primary/20">

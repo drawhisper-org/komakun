@@ -54,9 +54,9 @@ export function HomeSidebar() {
       <div className="flex-1" />
 
       {/* Footer */}
-      <div className="px-4 py-3 text-[10px] text-on-surface-variant/30">
+      {/* <div className="px-4 py-3 text-[10px] text-on-surface-variant/30">
         {t("openSource")}
-      </div>
+      </div> */}
     </aside>
   );
 }

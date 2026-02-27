@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Nunito, Inter } from "next/font/google";
@@ -27,10 +27,10 @@ import {
   GlobeIcon,
   LightningIcon,
   GithubLogoIcon,
-  DiscordLogoIcon,
 } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
 import { track } from "@vercel/analytics";
+import { useTheme } from "next-themes";
 import { useUserStore } from "@/stores/user-store";
 import { useLocaleStore, type Locale } from "@/stores/locale-store";
 
@@ -571,13 +571,17 @@ function GlassesLogo({ className = "h-8 w-8" }: { className?: string }) {
 export function LandingPage() {
   const t = useTranslations("landing");
   const router = useRouter();
+  const { resolvedTheme } = useTheme();
   const login = useUserStore((s) => s.login);
   const [showLogin, setShowLogin] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
   const [scrolled, setScrolled] = useState(false);
-  const [translationLang, setTranslationLang] = useState<'en' | 'zh'>('en');
+  const locale = useLocaleStore((s) => s.locale);
+
+  /** Right-card banner: pick image by locale (zh/zh-TW → zh, else en) */
+  const rightBannerLang: 'zh' | 'en' = (locale === 'zh' || locale === 'zh-TW') ? 'zh' : 'en';
 
   /* ── Nav scroll state ── */
   useEffect(() => {
@@ -767,7 +771,7 @@ export function LandingPage() {
             rel="noopener noreferrer"
             className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant"
           >
-            <GithubLogoIcon weight="fill" className="h-[18px] w-[18px]" />
+            <img src={resolvedTheme === "dark" ? "/images/Github-Symbol-Dark.svg" : "/images/Github-Symbol.svg"} alt="GitHub" className="h-4 w-4" />
           </a>
           <a
             href="https://discord.gg/dazJmnpJCw"
@@ -775,7 +779,7 @@ export function LandingPage() {
             rel="noopener noreferrer"
             className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant"
           >
-            <DiscordLogoIcon weight="fill" className="h-[18px] w-[18px]" />
+            <img src="/images/Discord-Symbol-Blurple.svg" alt="Discord" className="h-4 w-4" />
           </a>
           <motion.button
             onClick={() => setShowLogin(true)}
@@ -845,7 +849,7 @@ export function LandingPage() {
             className="absolute top-[6%] -left-[8%] h-[88%] w-[48%] overflow-hidden rounded-3xl border border-white/[0.06] shadow-2xl shadow-black/20 md:-left-[2%] md:h-[92%] md:w-[38%]"
           >
             <Image
-              src="/images/1647434910840002.jpg.c1500x.webp"
+              src="/images/banner/koma-kun-banner-ja.jpg"
               alt="Manga page — original Japanese"
               fill
               className="object-cover"
@@ -867,33 +871,47 @@ export function LandingPage() {
             initial={{ opacity: 0, x: 80, rotate: 14 }}
             animate={{ opacity: 1, x: 0, rotate: 6 }}
             transition={{ delay: 0.8, duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-            onClick={() => setTranslationLang(prev => prev === 'en' ? 'zh' : 'en')}
-            className="pointer-events-auto absolute top-[8%] -right-[8%] h-[88%] w-[48%] cursor-pointer overflow-hidden rounded-3xl border border-primary/10 shadow-2xl shadow-black/20 transition-shadow hover:shadow-primary/15 md:-right-[1%] md:h-[92%] md:w-[38%]"
+            className="pointer-events-auto absolute top-[8%] -right-[8%] h-[88%] w-[48%] overflow-hidden rounded-3xl border border-primary/10 shadow-2xl shadow-black/20 md:-right-[1%] md:h-[92%] md:w-[38%]"
           >
-            <Image
-              src="/images/1647434910840002.jpg.c1500x.webp"
-              alt="Manga page — translated"
-              fill
-              className="object-cover"
-              sizes="(max-width: 768px) 48vw, 35vw"
-              priority
-            />
+            {/* Always-mounted images — crossfade via opacity, no mount/unmount clipping issues */}
+            <div className="absolute inset-0">
+              <Image
+                src="/images/banner/koma-kun-banner-zh.jpg"
+                alt="Manga page — Chinese"
+                fill
+                className="object-cover transition-opacity duration-500"
+                style={{ opacity: rightBannerLang === 'zh' ? 1 : 0 }}
+                sizes="(max-width: 768px) 48vw, 35vw"
+                priority
+              />
+            </div>
+            <div className="absolute inset-0">
+              <Image
+                src="/images/banner/koma-kun-banner-en.jpg"
+                alt="Manga page — English"
+                fill
+                className="object-cover transition-opacity duration-500"
+                style={{ opacity: rightBannerLang === 'en' ? 1 : 0 }}
+                sizes="(max-width: 768px) 48vw, 35vw"
+                priority
+              />
+            </div>
             {/* Indigo-tinted overlay — heavier on inner edge */}
             <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-primary/15 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/5" />
             {/* Language badge */}
             <AnimatePresence mode="wait">
               <motion.div
-                key={translationLang}
+                key={rightBannerLang}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.25 }}
-                className="absolute right-[20%] bottom-4 flex items-center gap-1.5 rounded-full bg-primary/60 px-3.5 py-1.5 backdrop-blur-md transition-colors hover:bg-primary/80 md:right-[26%]"
+                className="absolute right-[20%] bottom-4 flex items-center gap-1.5 rounded-full bg-primary/60 px-3.5 py-1.5 backdrop-blur-md md:right-[26%]"
               >
                 <TranslateIcon weight="bold" className="h-3 w-3 text-white/80" />
                 <p className={`text-[9px] font-semibold tracking-wide text-white md:text-[11px] ${inter.className}`}>
-                  {translationLang === 'en' ? t("hero.langEnglish") : t("hero.langChinese")}
+                  {rightBannerLang === 'en' ? t("hero.langEnglish") : t("hero.langChinese")}
                 </p>
               </motion.div>
             </AnimatePresence>
@@ -1016,7 +1034,7 @@ export function LandingPage() {
         id="video-section"
         ref={videoSectionRef}
         className="relative mt-24"
-        style={{ height: "110vh" }}
+        style={{ height: "120vh" }}
       >
         <div className="sticky top-0 flex h-screen flex-col items-center justify-center gap-6 overflow-hidden px-4 md:px-8">
           {/* Section label — fades out */}
@@ -1623,7 +1641,7 @@ export function LandingPage() {
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.97 }}
                 >
-                  <DiscordLogoIcon weight="bold" className="h-4 w-4" />
+                  <img src="/images/Discord-Symbol-Blurple.svg" alt="Discord" className="h-4 w-4" />
                   {t("community.ctaJoin")}
                 </motion.a>
                 <motion.a
@@ -1634,7 +1652,7 @@ export function LandingPage() {
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                 >
-                  <BracketsAngleIcon weight="bold" className="h-4 w-4" />
+                  <img src={resolvedTheme === "dark" ? "/images/Github-Symbol-Dark.svg" : "/images/Github-Symbol.svg"} alt="GitHub" className="h-4 w-4" />
                   {t("community.ctaGithub")}
                 </motion.a>
               </div>

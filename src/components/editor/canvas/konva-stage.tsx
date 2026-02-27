@@ -137,6 +137,9 @@ export function KonvaStage({
   // Marching ants for persistent selection indicator
   const marchingOffset = useMarchingAnts(!!pendingSelection);
 
+  // Ref for arrow-key undo debounce (single snapshot per key-hold)
+  const arrowSnapRef = useRef(false);
+
   // Container resize
   useEffect(() => {
     const el = containerRef.current;
@@ -185,6 +188,51 @@ export function KonvaStage({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activePage?.id, pendingSelection, clearSelection, removeTextBlock, removeInpaintStroke, clearAllSelections, pushCurrentSnapshot]);
+
+  /* ── Arrow keys to nudge selected text block ── */
+  useEffect(() => {
+    const handleArrowKey = (e: KeyboardEvent) => {
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      const pageId = activePage?.id;
+      const { selectedBlockId: blkId } = useEditorSelectionStore.getState();
+      if (!blkId || !pageId) return;
+
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1;
+      const delta = { x: 0, y: 0 };
+      if (e.key === "ArrowUp") delta.y = -step;
+      if (e.key === "ArrowDown") delta.y = step;
+      if (e.key === "ArrowLeft") delta.x = -step;
+      if (e.key === "ArrowRight") delta.x = step;
+
+      const page = useProjectStore.getState().pages.find((p) => p.id === pageId);
+      const block = page?.textBlocks.find((b) => b.id === blkId);
+      if (!block) return;
+
+      // Push undo snapshot only on first arrow press (debounce via ref)
+      if (!arrowSnapRef.current) {
+        pushCurrentSnapshot();
+        arrowSnapRef.current = true;
+      }
+      updateTextBlock(pageId, blkId, { x: block.x + delta.x, y: block.y + delta.y });
+    };
+
+    const handleArrowKeyUp = (e: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        arrowSnapRef.current = false;
+      }
+    };
+
+    window.addEventListener("keydown", handleArrowKey);
+    window.addEventListener("keyup", handleArrowKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleArrowKey);
+      window.removeEventListener("keyup", handleArrowKeyUp);
+    };
+  }, [activePage?.id, updateTextBlock, pushCurrentSnapshot]);
 
   /* ── Fit to screen ── */
 
@@ -633,7 +681,11 @@ export function KonvaStage({
         {/* Layer 4: Text Nodes */}
         <Layer visible={visibility.text}>
           {activePage?.textBlocks.map((block) => (
-            <TextBlockNode key={block.id} block={block} fontGeneration={fontGeneration} />
+            <TextBlockNode
+              key={`${block.id}-${block.fontFamily ?? ""}-${fontGeneration}`}
+              block={block}
+              fontGeneration={fontGeneration}
+            />
           ))}
         </Layer>
 
@@ -933,6 +985,99 @@ const ResizableBlockRect = memo(function ResizableBlockRect({
 ));
 
 /* ── Text Block Node ── */
+
+/**
+ * Normalize text for manga-style vertical typesetting:
+ * - Replace sequences of periods/dots with proper ellipsis character (…)
+ * - Keep punctuation pairs (like !?) intact for combined rendering
+ */
+function normalizeMangaText(text: string): string {
+  let s = text;
+  // Normalize various dot sequences to ellipsis
+  s = s.replace(/\.{3,}/g, "…");   // ... or more → …
+  s = s.replace(/。{2,}/g, "…");    // 。。。 → …
+  s = s.replace(/…{2,}/g, "……");   // Cap at double ellipsis (manga standard)
+  return s;
+}
+
+/** Punctuation pairs that should be rendered as tate-chu-yoko (横組み in vertical) */
+const COMBINED_PUNCT_RE = /^[!?！？]{2}$/;
+
+/** Em-dash characters that should render as a vertical line in vertical layout */
+const EM_DASH_CHARS = new Set(["—", "─", "―", "ー"]);
+
+/** Middle dot / interpunct characters used for manga ellipsis */
+const MIDDLE_DOT_CHARS = new Set(["·", "・", "‧", "⋅", "•"]);
+
+/** Wave dash characters that should be rotated 90° in vertical layout */
+const WAVE_DASH_CHARS = new Set(["~", "～", "〜"]);
+
+/**
+ * Token types for vertical manga layout rendering.
+ * - "char": normal single character
+ * - "combined": punctuation pair rendered as tate-chu-yoko (!?, !!, etc.)
+ * - "dots": consecutive middle dots rendered with tight spacing
+ * - "dash": em-dash rendered as a continuous vertical line
+ */
+type VToken =
+  | { type: "char"; text: string }
+  | { type: "combined"; text: string }
+  | { type: "dots"; text: string; count: number }
+  | { type: "dash"; count: number }
+  | { type: "wave"; text: string };
+
+/**
+ * Tokenize a string for vertical manga layout.
+ * Groups punctuation pairs, consecutive middle dots, and em-dashes.
+ */
+function tokenizeVertical(text: string): VToken[] {
+  const chars = Array.from(text);
+  const tokens: VToken[] = [];
+  let i = 0;
+  while (i < chars.length) {
+    // Check for combined punctuation pairs
+    if (i + 1 < chars.length) {
+      const pair = chars[i] + chars[i + 1];
+      if (COMBINED_PUNCT_RE.test(pair)) {
+        tokens.push({ type: "combined", text: pair });
+        i += 2;
+        continue;
+      }
+    }
+    // Check for consecutive em-dashes (——)
+    if (EM_DASH_CHARS.has(chars[i])) {
+      let count = 0;
+      while (i < chars.length && EM_DASH_CHARS.has(chars[i])) { count++; i++; }
+      tokens.push({ type: "dash", count });
+      continue;
+    }
+    // Check for consecutive middle dots (···)
+    if (MIDDLE_DOT_CHARS.has(chars[i])) {
+      let count = 0;
+      const dotChar = chars[i];
+      while (i < chars.length && (MIDDLE_DOT_CHARS.has(chars[i]))) { count++; i++; }
+      tokens.push({ type: "dots", text: dotChar, count });
+      continue;
+    }
+    // Check for wave dash (~, 〜) — rotated 90° in vertical
+    if (WAVE_DASH_CHARS.has(chars[i])) {
+      tokens.push({ type: "wave", text: chars[i] });
+      i++;
+      continue;
+    }
+    tokens.push({ type: "char", text: chars[i] });
+    i++;
+  }
+  return tokens;
+}
+
+/** Count how many vertical cells a token occupies */
+function tokenCellCount(t: VToken): number {
+  if (t.type === "dash") return t.count;
+  if (t.type === "dots") return 1; // all dots compressed into 1 cell
+  return 1;
+}
+
 const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { block: TextBlock; fontGeneration: number }) {
   // fontGeneration is used to force re-render when fonts finish loading
   void fontGeneration;
@@ -962,18 +1107,33 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
     const colW = fontSize * lineH; // column width driven by lineHeight (acts as column gap)
     const charsPerCol = Math.max(1, Math.floor(block.height / charH));
 
+    // Normalize text for manga typesetting (ellipsis, etc.)
+    const normalizedText = normalizeMangaText(displayText);
+
     // Split into columns: newlines force a column break,
     // then auto-wrap within each segment when it exceeds block height.
-    const segments = displayText.split("\n");
-    const columns: string[][] = [];
+    // Uses tokenizeVertical to group punctuation pairs, middle dots, em-dashes.
+    const segments = normalizedText.split("\n");
+    const columns: VToken[][] = [];
     for (const seg of segments) {
-      const chars = seg.split("");
-      if (chars.length === 0) {
+      const tokens = tokenizeVertical(seg);
+      if (tokens.length === 0) {
         columns.push([]); // empty column for blank newline
       } else {
-        for (let i = 0; i < chars.length; i += charsPerCol) {
-          columns.push(chars.slice(i, i + charsPerCol));
+        // Pack tokens into columns respecting each token's cell count
+        let col: VToken[] = [];
+        let cells = 0;
+        for (const tok of tokens) {
+          const c = tokenCellCount(tok);
+          if (cells + c > charsPerCol && col.length > 0) {
+            columns.push(col);
+            col = [];
+            cells = 0;
+          }
+          col.push(tok);
+          cells += c;
         }
+        if (col.length > 0) columns.push(col);
       }
     }
 
@@ -989,6 +1149,56 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
       align === "right" ? slack :
       0; // "left" → no offset, columns at right edge
 
+    // Check if any column has special tokens (combined, dots, dash)
+    const hasSpecialTokens = columns.some((col) => col.some((t) => t.type !== "char"));
+
+    // Simple path: all chars are simple — use single KonvaText per column (fast)
+    if (!hasSpecialTokens) {
+      return (
+        <Group
+          x={block.x}
+          y={block.y}
+          width={block.width}
+          height={block.height}
+          rotation={rotation}
+          clipX={0}
+          clipY={0}
+          clipWidth={block.width}
+          clipHeight={block.height}
+          listening={false}
+        >
+          {columns.map((col, ci) => {
+            const colX = groupOffset + (totalColumnsW - (ci + 1) * colW);
+            const sharedProps = {
+              x: colX,
+              y: 0,
+              width: colW,
+              text: col.map((t) => t.type === "char" ? t.text : "").join("\n"),
+              fontSize,
+              lineHeight: 1.15,
+              letterSpacing,
+              fontFamily,
+              fontStyle: combinedStyle,
+              align: "center" as const,
+              verticalAlign: "top" as const,
+              wrap: "none" as const,
+              listening: false,
+            };
+            return strokeEnabled ? (
+              <Group key={ci}>
+                <KonvaText {...sharedProps} fill="white" stroke="white" strokeWidth={strokeW} lineJoin="round" />
+                <KonvaText {...sharedProps} fill={fontColor} strokeEnabled={false} />
+              </Group>
+            ) : (
+              <KonvaText key={ci} {...sharedProps} fill={fontColor} />
+            );
+          })}
+        </Group>
+      );
+    }
+
+    // Complex path: render each token individually so combined pairs, dots,
+    // and em-dashes can receive custom rendering
     return (
       <Group
         x={block.x}
@@ -1003,46 +1213,155 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
         listening={false}
       >
         {columns.map((col, ci) => {
-          // Right-to-left: first column at right edge, shifted by alignment
           const colX = groupOffset + (totalColumnsW - (ci + 1) * colW);
-          const sharedProps = {
-            x: colX,
-            y: 0,
-            width: colW,
-            text: col.join("\n"),
-            fontSize,
-            lineHeight: 1.15,
-            letterSpacing,
-            fontFamily,
-            fontStyle: combinedStyle,
-            align: "center" as const,
-            verticalAlign: "top" as const,
-            wrap: "none" as const,
-            listening: false,
-          };
-          return strokeEnabled ? (
+          let cellIndex = 0; // tracks vertical position in cells
+          return (
             <Group key={ci}>
-              {/* Bottom layer: white stroke outline */}
-              <KonvaText
-                {...sharedProps}
-                fill="white"
-                stroke="white"
-                strokeWidth={strokeW}
-                lineJoin="round"
-              />
-              {/* Top layer: clean fill */}
-              <KonvaText
-                {...sharedProps}
-                fill={fontColor}
-                strokeEnabled={false}
-              />
+              {col.map((token, ti) => {
+                const tokenY = cellIndex * charH;
+                const cellsUsed = tokenCellCount(token);
+                cellIndex += cellsUsed;
+
+                if (token.type === "combined") {
+                  // Tate-chu-yoko: render the pair horizontally in one cell
+                  // Use ~72% font size, laid out side by side, centered in the cell
+                  const pairFontSize = fontSize * 0.72;
+                  const pairProps = {
+                    text: token.text,
+                    fontSize: pairFontSize,
+                    fontFamily,
+                    fontStyle: combinedStyle,
+                    letterSpacing: -1, // tighten
+                    align: "center" as const,
+                    verticalAlign: "middle" as const,
+                    width: colW,
+                    height: charH,
+                    x: colX,
+                    y: tokenY,
+                    wrap: "none" as const,
+                    listening: false,
+                  };
+                  return strokeEnabled ? (
+                    <Group key={ti}>
+                      <KonvaText {...pairProps} fill="white" stroke="white" strokeWidth={strokeW * 0.7} lineJoin="round" />
+                      <KonvaText {...pairProps} fill={fontColor} strokeEnabled={false} />
+                    </Group>
+                  ) : (
+                    <KonvaText key={ti} {...pairProps} fill={fontColor} />
+                  );
+                }
+
+                if (token.type === "dots") {
+                  // Middle dots (···) — render tightly packed within 1 cell
+                  const dotSpacing = charH * 0.35; // tight vertical gap between dots
+                  const totalDotsH = token.count * dotSpacing;
+                  const offsetY = tokenY + (charH - totalDotsH) / 2; // center dots in cell
+                  const dotElements: React.ReactNode[] = [];
+                  for (let d = 0; d < token.count; d++) {
+                    const dY = offsetY + d * dotSpacing;
+                    const dotProps = {
+                      text: token.text,
+                      fontSize: fontSize * 0.6,
+                      fontFamily,
+                      fontStyle: combinedStyle,
+                      align: "center" as const,
+                      verticalAlign: "middle" as const,
+                      width: colW,
+                      height: dotSpacing,
+                      x: colX,
+                      y: dY,
+                      wrap: "none" as const,
+                      listening: false,
+                    };
+                    if (strokeEnabled) {
+                      dotElements.push(
+                        <KonvaText key={`s${d}`} {...dotProps} fill="white" stroke="white" strokeWidth={strokeW * 0.5} lineJoin="round" />,
+                        <KonvaText key={`f${d}`} {...dotProps} fill={fontColor} strokeEnabled={false} />,
+                      );
+                    } else {
+                      dotElements.push(
+                        <KonvaText key={d} {...dotProps} fill={fontColor} />,
+                      );
+                    }
+                  }
+                  return <Group key={ti}>{dotElements}</Group>;
+                }
+
+                if (token.type === "dash") {
+                  // Em-dash (——) — render as a continuous vertical line spanning cells
+                  const dashH = cellsUsed * charH;
+                  const lineThickness = Math.max(1.5, fontSize * 0.065);
+                  const lineX = colX + colW / 2 - lineThickness / 2;
+                  const marginY = charH * 0.08; // small top/bottom inset
+                  if (strokeEnabled) {
+                    return (
+                      <Group key={ti}>
+                        <Rect x={lineX - strokeW * 0.4} y={tokenY + marginY} width={lineThickness + strokeW * 0.8} height={dashH - marginY * 2} fill="white" cornerRadius={lineThickness} listening={false} />
+                        <Rect x={lineX} y={tokenY + marginY} width={lineThickness} height={dashH - marginY * 2} fill={fontColor} cornerRadius={lineThickness / 2} listening={false} />
+                      </Group>
+                    );
+                  }
+                  return (
+                    <Rect key={ti} x={lineX} y={tokenY + marginY} width={lineThickness} height={dashH - marginY * 2} fill={fontColor} cornerRadius={lineThickness / 2} listening={false} />
+                  );
+                }
+
+                if (token.type === "wave") {
+                  // Wave dash (~) — render rotated 90° CW to become vertical wave
+                  const waveCenterX = colX + colW / 2;
+                  const waveCenterY = tokenY + charH / 2;
+                  const waveProps = {
+                    text: token.text,
+                    fontSize,
+                    fontFamily,
+                    fontStyle: combinedStyle,
+                    align: "center" as const,
+                    verticalAlign: "middle" as const,
+                    width: charH,
+                    height: colW,
+                    offsetX: charH / 2,
+                    offsetY: colW / 2,
+                    x: waveCenterX,
+                    y: waveCenterY,
+                    rotation: 90,
+                    wrap: "none" as const,
+                    listening: false,
+                  };
+                  return strokeEnabled ? (
+                    <Group key={ti}>
+                      <KonvaText {...waveProps} fill="white" stroke="white" strokeWidth={strokeW} lineJoin="round" />
+                      <KonvaText {...waveProps} fill={fontColor} strokeEnabled={false} />
+                    </Group>
+                  ) : (
+                    <KonvaText key={ti} {...waveProps} fill={fontColor} />
+                  );
+                }
+
+                // Normal single character
+                const charProps = {
+                  text: token.text,
+                  fontSize,
+                  fontFamily,
+                  fontStyle: combinedStyle,
+                  letterSpacing,
+                  align: "center" as const,
+                  verticalAlign: "top" as const,
+                  width: colW,
+                  x: colX,
+                  y: tokenY,
+                  wrap: "none" as const,
+                  listening: false,
+                };
+                return strokeEnabled ? (
+                  <Group key={ti}>
+                    <KonvaText {...charProps} fill="white" stroke="white" strokeWidth={strokeW} lineJoin="round" />
+                    <KonvaText {...charProps} fill={fontColor} strokeEnabled={false} />
+                  </Group>
+                ) : (
+                  <KonvaText key={ti} {...charProps} fill={fontColor} />
+                );
+              })}
             </Group>
-          ) : (
-            <KonvaText
-              key={ci}
-              {...sharedProps}
-              fill={fontColor}
-            />
           );
         })}
       </Group>
@@ -1055,7 +1374,7 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
     width: block.width,
     height: block.height,
     rotation,
-    text: displayText,
+    text: normalizeMangaText(displayText),
     fontSize: block.fontSize || 14,
     lineHeight: lineH,
     letterSpacing,

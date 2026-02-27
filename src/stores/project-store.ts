@@ -71,7 +71,7 @@ interface ProjectState {
 
 interface ProjectActions {
   setProjectName: (name: string) => void;
-  addPages: (files: File[]) => Promise<void>;
+  addPages: (files: File[]) => Promise<{ skippedOversize: number }>;
   removePage: (pageId: string) => void;
   setActivePage: (pageId: string) => void;
   reorderPages: (newOrder: PageState[]) => void;
@@ -109,7 +109,7 @@ interface ProjectActions {
 export type ProjectStore = ProjectState & ProjectActions;
 
 const MAX_PAGES = 80;
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -209,10 +209,12 @@ export const useProjectStore = create<ProjectStore>()(
       addPages: async (files) => {
         const state = get();
         const remainingSlots = MAX_PAGES - state.pages.length;
-        if (remainingSlots <= 0) return;
+        if (remainingSlots <= 0) return { skippedOversize: 0 };
 
-        const validFiles = files
-          .filter((f) => f.type.startsWith("image/") && f.size <= MAX_FILE_SIZE)
+        const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+        const skippedOversize = imageFiles.filter((f) => f.size > MAX_FILE_SIZE).length;
+        const validFiles = imageFiles
+          .filter((f) => f.size <= MAX_FILE_SIZE)
           .sort((a, b) =>
             a.name.localeCompare(b.name, undefined, {
               numeric: true,
@@ -242,6 +244,8 @@ export const useProjectStore = create<ProjectStore>()(
           lastEditedAt: now,
           createdAt: s.createdAt || now,
         }));
+
+        return { skippedOversize };
       },
 
       removePage: (pageId) =>
