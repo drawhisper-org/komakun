@@ -3,6 +3,7 @@
  * Provides PNG/PSD export (single page) and ZIP export (all pages as PNG or PSD).
  */
 import type { PageState, TextBlock } from "@/stores/project-store";
+import type { WatermarkConfig } from "@/stores/app-config-store";
 import JSZip from "jszip";
 import { writePsd, type Psd, type Layer } from "ag-psd";
 import { DEFAULT_FONT } from "@/lib/manga-fonts";
@@ -41,7 +42,7 @@ function downloadBlob(blob: Blob, filename: string) {
  * Render a page (original image + inpaint strokes + text blocks) into an
  * OffscreenCanvas and return a Blob.
  */
-async function renderPageToBlob(page: PageState): Promise<Blob> {
+async function renderPageToBlob(page: PageState, watermark?: WatermarkConfig): Promise<Blob> {
   // Load image(s)
   const originalImg = await loadImage(page.originalImageBase64);
   const w = originalImg.naturalWidth;
@@ -83,6 +84,21 @@ async function renderPageToBlob(page: PageState): Promise<Blob> {
   // 4. Draw text blocks
   for (const block of page.textBlocks) {
     renderTextBlock(ctx, block);
+  }
+
+  // 5. Draw watermark (bottom-right)
+  if (watermark?.enabled && watermark.imageBase64) {
+    const wmImg = await loadImage(watermark.imageBase64);
+    const sizeScale = watermark.size === "small" ? 0.08 : watermark.size === "large" ? 0.2 : 0.12;
+    const maxWmW = w * sizeScale;
+    const wmAspect = wmImg.naturalWidth / wmImg.naturalHeight;
+    const wmW = Math.min(maxWmW, wmImg.naturalWidth);
+    const wmH = wmW / wmAspect;
+    const margin = w * 0.02;
+    ctx.save();
+    ctx.globalAlpha = watermark.opacity;
+    ctx.drawImage(wmImg, w - wmW - margin, h - wmH - margin, wmW, wmH);
+    ctx.restore();
   }
 
   return new Promise((resolve, reject) => {
@@ -389,9 +405,10 @@ async function buildPsd(page: PageState): Promise<ArrayBuffer> {
  */
 export async function exportPageAsPng(
   page: PageState,
-  projectName: string
+  projectName: string,
+  watermark?: WatermarkConfig
 ): Promise<void> {
-  const blob = await renderPageToBlob(page);
+  const blob = await renderPageToBlob(page, watermark);
   const baseName = page.fileName.replace(/\.[^.]+$/, "");
   downloadBlob(blob, `${projectName}_${baseName}.png`);
 }
@@ -414,14 +431,15 @@ export async function exportPageAsPsd(
  */
 export async function exportProjectAsZip(
   pages: PageState[],
-  projectName: string
+  projectName: string,
+  watermark?: WatermarkConfig
 ): Promise<void> {
   const zip = new JSZip();
   const folder = zip.folder(projectName)!;
 
   for (let i = 0; i < pages.length; i++) {
     const page = pages[i];
-    const blob = await renderPageToBlob(page);
+    const blob = await renderPageToBlob(page, watermark);
     const baseName = page.fileName.replace(/\.[^.]+$/, "");
     folder.file(`${String(i + 1).padStart(3, "0")}_${baseName}.png`, blob);
   }

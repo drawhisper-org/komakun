@@ -99,9 +99,9 @@
     },
     "community": {
       "badge": "Open Source · Community-Driven",
-      "heading": "Built by translators, for translators",
-      "description": "KomaKun! was born in the scanlation community. We know the pain of manual OCR, the tedium of cleaning, and the grind of typesetting — because we’ve lived it. Free, open source, and for everyone.",
-      "ctaJoin": "Join KomaKun!",
+      "heading": "Born from passion, built for the community.",
+      "description": "Reimagining the manga translation workflow with AI. From smart text removal to adaptive typesetting — say goodbye to tedious manual labor and refocus on your pure love for manga. KomaKun! is fully open source, evolving together with the community.",
+      "ctaJoin": "Join our Discord",
       "ctaGithub": "Star on GitHub"
     },
     "cta": {
@@ -115,13 +115,13 @@
     },
     "login": {
       "heading": "Welcome",
-      "description": "Create a local profile to get started. No account needed.",
-      "nameLabel": "Nickname",
+      "description": "Enter your name and email to get started.",
+      "nameLabel": "Name",
       "nameRequired": "*",
       "namePlaceholder": "Your name",
       "emailLabel": "Email",
-      "emailOptional": "(optional)",
       "emailPlaceholder": "you@example.com",
+      "emailInvalid": "Please enter a valid email address.",
       "cancel": "Cancel",
       "submit": "Enter KomaKun!"
     }
@@ -310,6 +310,7 @@
     "rendersAtCorner": "Renders at bottom-right corner",
     "uploadWatermark": "Upload watermark image",
     "watermarkSize": "Watermark Size",
+    "watermarkOpacity": "Opacity",
     "small": "Small",
     "default": "Default",
     "large": "Large",

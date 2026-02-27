@@ -15,6 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { Nunito } from "next/font/google";
 
+
 const nunito = Nunito({
   subsets: ["latin"],
   weight: ["400", "700", "800", "900"],
@@ -203,7 +204,9 @@ export function HomeView() {
               {t("recents")}
             </h1>
           </div>
-          <HomeLanguageSwitcher />
+          <div className="flex items-center gap-2">
+            <HomeLanguageSwitcher />
+          </div>
         </div>
 
         {/* Content area */}

@@ -16,6 +16,7 @@ export interface WatermarkConfig {
   enabled: boolean;
   imageBase64: string | null;
   size: "small" | "default" | "large";
+  opacity: number;
 }
 
 export type InpaintMode = "replicate" | "local";
@@ -92,6 +93,7 @@ export const useAppConfigStore = create<AppConfigStore>()(
         enabled: false,
         imageBase64: null,
         size: "default",
+        opacity: 0.7,
       },
 
       // Actions

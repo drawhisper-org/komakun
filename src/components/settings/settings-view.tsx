@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -632,7 +633,7 @@ function AIConfigSection() {
                   className="h-9 gap-1.5 bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90"
                 >
                   {validating ? (
-                    <SpinnerGapIcon weight="fill" className="h-3.5 w-3.5 animate-spin" />
+                    <SpinnerGapIcon className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <CheckCircleIcon weight="fill" className="h-3.5 w-3.5" />
                   )}
@@ -673,7 +674,7 @@ function AIConfigSection() {
                 />
               )}
               {loadingModels && (
-                <SpinnerGapIcon weight="fill" className="ml-1.5 inline h-3 w-3 animate-spin text-primary" />
+                <SpinnerGapIcon className="ml-1.5 inline h-3 w-3 animate-spin text-primary" />
               )}
             </SettingRow>
 
@@ -693,7 +694,7 @@ function AIConfigSection() {
                     className="h-9 gap-1.5 bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90"
                   >
                     {validating ? (
-                      <SpinnerGapIcon weight="fill" className="h-3.5 w-3.5 animate-spin" />
+                      <SpinnerGapIcon className="h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <CheckCircleIcon weight="fill" className="h-3.5 w-3.5" />
                     )}
@@ -723,7 +724,7 @@ function AIConfigSection() {
                   className="h-9 gap-1.5 bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90"
                 >
                   {validating ? (
-                    <SpinnerGapIcon weight="fill" className="h-3.5 w-3.5 animate-spin" />
+                    <SpinnerGapIcon className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <CheckCircleIcon weight="fill" className="h-3.5 w-3.5" />
                   )}
@@ -769,7 +770,7 @@ function AIConfigSection() {
               className="h-9 gap-1.5 bg-secondary px-4 font-semibold text-secondary-foreground hover:bg-secondary/90"
             >
               {validatingVision ? (
-                <SpinnerGapIcon weight="fill" className="h-3.5 w-3.5 animate-spin" />
+                <SpinnerGapIcon className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <ScanIcon weight="fill" className="h-3.5 w-3.5" />
               )}
@@ -839,7 +840,7 @@ function AIConfigSection() {
                 className="h-9 gap-1.5 bg-secondary px-4 font-semibold text-secondary-foreground hover:bg-secondary/90"
               >
                 {validatingReplicate ? (
-                  <SpinnerGapIcon weight="fill" className="h-3.5 w-3.5 animate-spin" />
+                  <SpinnerGapIcon className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <CheckCircleIcon weight="fill" className="h-3.5 w-3.5" />
                 )}
@@ -961,6 +962,17 @@ function WatermarkSection() {
             </button>
           ))}
         </div>
+      </SettingRow>
+
+      <SettingRow label={`${t("watermarkOpacity")} — ${Math.round((watermark.opacity ?? 0.7) * 100)}%`}>
+        <Slider
+          min={10}
+          max={100}
+          step={5}
+          value={[Math.round((watermark.opacity ?? 0.7) * 100)]}
+          onValueChange={([v]) => setWatermark({ opacity: v / 100 })}
+          className="max-w-sm"
+        />
       </SettingRow>
     </SettingsCard>
   );

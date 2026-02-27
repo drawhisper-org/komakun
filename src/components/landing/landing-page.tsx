@@ -11,6 +11,8 @@ import {
   useInView,
   AnimatePresence,
 } from "framer-motion";
+
+import { KofiButton } from "@/components/ui/kofi-button";
 import {
   TranslateIcon,
   MagicWandIcon,
@@ -28,6 +30,7 @@ import {
   DiscordLogoIcon,
 } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
+import { track } from "@vercel/analytics";
 import { useUserStore } from "@/stores/user-store";
 import { useLocaleStore, type Locale } from "@/stores/locale-store";
 
@@ -572,6 +575,7 @@ export function LandingPage() {
   const [showLogin, setShowLogin] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [scrolled, setScrolled] = useState(false);
   const [translationLang, setTranslationLang] = useState<'en' | 'zh'>('en');
 
@@ -606,11 +610,21 @@ export function LandingPage() {
     [1, 0],
   );
 
+  const isValidEmail = (v: string) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+
   const handleLogin = useCallback(() => {
     if (!name.trim()) return;
-    login(name.trim(), email.trim());
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !isValidEmail(trimmedEmail)) {
+      setEmailError(t("login.emailInvalid"));
+      return;
+    }
+    setEmailError("");
+    track("user_login", { email: trimmedEmail });
+    login(name.trim(), trimmedEmail);
     router.push("/");
-  }, [name, email, login, router]);
+  }, [name, email, login, router, t]);
 
   /* ── Data ── */
   const features = [
@@ -745,6 +759,7 @@ export function LandingPage() {
           </span>
         </div>
         <div className="flex items-center gap-1">
+          <KofiButton />
           <LanguageSwitcher />
           <a
             href="https://github.com/drawhisper-org/komakun"
@@ -755,7 +770,7 @@ export function LandingPage() {
             <GithubLogoIcon weight="fill" className="h-[18px] w-[18px]" />
           </a>
           <a
-            href="https://discord.gg"
+            href="https://discord.gg/dazJmnpJCw"
             target="_blank"
             rel="noopener noreferrer"
             className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant"
@@ -1596,19 +1611,21 @@ export function LandingPage() {
               >
                 {t("community.heading")}
               </h3>
-              <p className={`mx-auto mb-8 max-w-lg text-sm leading-relaxed text-on-surface-variant/50 ${inter.className}`}>
+              <p className={`mx-auto mb-8 max-w-xl text-sm leading-relaxed text-on-surface-variant/50 ${inter.className}`}>
                 {t("community.description")}
               </p>
               <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-                <motion.button
-                  onClick={() => setShowLogin(true)}
+                <motion.a
+                  href="https://discord.gg/dazJmnpJCw"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20"
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.97 }}
                 >
-                  <EyeglassesIcon weight="bold" className="h-4 w-4" />
+                  <DiscordLogoIcon weight="bold" className="h-4 w-4" />
                   {t("community.ctaJoin")}
-                </motion.button>
+                </motion.a>
                 <motion.a
                   href="https://github.com/drawhisper-org/komakun"
                   target="_blank"
@@ -1748,19 +1765,32 @@ export function LandingPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-[11px] font-medium text-on-surface-variant/60">
-                      {t("login.emailLabel")}{" "}
-                      <span className="text-on-surface-variant/25">
-                        {t("login.emailOptional")}
-                      </span>
+                      {t("login.emailLabel")} <span className="text-destructive">*</span>
                     </label>
                     <input
                       type="email"
                       placeholder={t("login.emailPlaceholder")}
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (emailError) setEmailError("");
+                      }}
+                      onBlur={() => {
+                        const v = email.trim();
+                        if (v && !isValidEmail(v)) {
+                          setEmailError(t("login.emailInvalid"));
+                        }
+                      }}
                       onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                      className="w-full rounded-xl border border-outline-variant/20 bg-surface-variant/10 px-4 py-2.5 text-sm text-on-surface outline-none transition-all placeholder:text-on-surface-variant/25 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className={`w-full rounded-xl border bg-surface-variant/10 px-4 py-2.5 text-sm text-on-surface outline-none transition-all placeholder:text-on-surface-variant/25 focus:ring-2 ${
+                        emailError
+                          ? "border-destructive focus:border-destructive focus:ring-destructive/10"
+                          : "border-outline-variant/20 focus:border-primary focus:ring-primary/10"
+                      }`}
                     />
+                    {emailError && (
+                      <p className="mt-1 text-[11px] text-destructive">{emailError}</p>
+                    )}
                   </div>
                 </div>
 
@@ -1773,7 +1803,7 @@ export function LandingPage() {
                   </button>
                   <motion.button
                     onClick={handleLogin}
-                    disabled={!name.trim()}
+                    disabled={!name.trim() || !email.trim()}
                     className="rounded-xl bg-primary px-6 py-2.5 text-xs font-semibold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}

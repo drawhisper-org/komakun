@@ -99,9 +99,9 @@
     },
     "community": {
       "badge": "开源 · 社区驱动",
-      "heading": "翻译者做的，给翻译者用",
-      "description": "KomaKun! 生于汉化圈。手动 OCR 的痛、擦字的苦、嵌字的累——我们都经历过，所以做了一个更好的工具。免费、开源，人人可用。",
-      "ctaJoin": "加入 KomaKun!",
+      "heading": "始于个人热爱，献给汉化社区。",
+      "description": "用 AI 技术重塑漫画汉化工作流。从智能去字到自适应排版，告别繁琐的机械劳动，将精力还给对漫画的纯粹热爱。KomaKun! 代码完全开源，与社区开发者共同进化。",
+      "ctaJoin": "加入 Discord 频道",
       "ctaGithub": "去 GitHub 点星"
     },
     "cta": {
@@ -115,13 +115,13 @@
     },
     "login": {
       "heading": "欢迎",
-      "description": "创建一个本地档案即可开始，无需注册账号。",
-      "nameLabel": "昵称",
+      "description": "输入名字和邮箱即可开始使用。",
+      "nameLabel": "名字",
       "nameRequired": "*",
-      "namePlaceholder": "你的昵称",
+      "namePlaceholder": "你的名字",
       "emailLabel": "邮箱",
-      "emailOptional": "（选填）",
       "emailPlaceholder": "you@example.com",
+      "emailInvalid": "请输入有效的邮箱地址。",
       "cancel": "取消",
       "submit": "进入 KomaKun!"
     }
@@ -310,6 +310,7 @@
     "rendersAtCorner": "将显示在右下角",
     "uploadWatermark": "上传水印图片",
     "watermarkSize": "水印大小",
+    "watermarkOpacity": "透明度",
     "small": "小",
     "default": "默认",
     "large": "大",

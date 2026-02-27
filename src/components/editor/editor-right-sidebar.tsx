@@ -77,6 +77,7 @@ import { detectText, cropImageRegion, cropAndMaskRegion } from "@/lib/google-vis
 import { exportPageAsPng, exportPageAsPsd, exportProjectAsZip, exportProjectAsPsdZip } from "@/lib/export-utils";
 import { inpaintImage } from "@/lib/lama-inpaint";
 import { translateTextBlocks } from "@/lib/translate-service";
+import { track } from "@vercel/analytics";
 
 /* \u2500\u2500 Platform detection \u2500\u2500 */
 function useIsMac() {
@@ -112,6 +113,7 @@ export function EditorRightSidebar() {
   const targetLanguage = useAppConfigStore((s) => s.targetLanguage);
   const localLlmUrl = useAppConfigStore((s) => s.localLlmUrl);
   const localLlmModel = useAppConfigStore((s) => s.localLlmModel);
+  const watermarkConfig = useAppConfigStore((s) => s.watermark);
   const updateTextBlock = useProjectStore((s) => s.updateTextBlock);
 
   const activePage = useProjectStore(
@@ -232,27 +234,27 @@ export function EditorRightSidebar() {
     if (!activePage || exportingPng) return;
     setExportingPng(true);
     try {
-      await exportPageAsPng(activePage, projectName);
+      await exportPageAsPng(activePage, projectName, watermarkConfig);
       toast.success(t("exportedPng"), { description: activePage.fileName });
     } catch (err) {
       toast.error(t("exportFailed"), { description: String(err) });
     } finally {
       setExportingPng(false);
     }
-  }, [activePage, exportingPng, projectName, t]);
+  }, [activePage, exportingPng, projectName, t, watermarkConfig]);
 
   const handleExportZip = useCallback(async () => {
     if (pages.length === 0 || exportingZip) return;
     setExportingZip(true);
     try {
-      await exportProjectAsZip(pages, projectName);
+      await exportProjectAsZip(pages, projectName, watermarkConfig);
       toast.success(t("projectExported"), { description: `${projectName}.zip` });
     } catch (err) {
       toast.error(t("exportFailed"), { description: String(err) });
     } finally {
       setExportingZip(false);
     }
-  }, [pages, exportingZip, projectName, t]);
+  }, [pages, exportingZip, projectName, t, watermarkConfig]);
 
   const handleExportPsd = useCallback(async () => {
     if (!activePage || exportingPsd) return;
@@ -298,6 +300,7 @@ export function EditorRightSidebar() {
     }
 
     setOcrLoading(true);
+    track("ocr_process");
     try {
       let result;
       let offsetX = 0;
@@ -396,7 +399,6 @@ export function EditorRightSidebar() {
 
     setCleanLoading(true);
     try {
-      // Determine image dimensions from the original image
       const img = new Image();
       img.src = activePage.originalImageBase64;
       await new Promise<void>((resolve, reject) => {
@@ -853,7 +855,7 @@ function WorkflowStep({
     >
       <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface/60 ${iconColors[variant]}`}>
         <Icon
-          weight={variant === "done" ? "fill" : "bold"}
+          weight={variant === "done" ? "fill" : spinning ? "regular" : "bold"}
           className={`h-4 w-4 ${spinning ? "animate-spin" : ""}`}
         />
       </div>

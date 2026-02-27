@@ -99,9 +99,9 @@
     },
     "community": {
       "badge": "開源 · 社群驅動",
-      "heading": "翻譯者做的，給翻譯者用",
-      "description": "KomaKun! 生於翻譯圈。手動 OCR 的痛、擦字的苦、嵌字的累——我們都經歷過，所以做了一個更好的工具。免費、開源，人人可用。",
-      "ctaJoin": "加入 KomaKun!",
+      "heading": "始於個人熱愛，獻給漢化社群。",
+      "description": "用 AI 技術重塑漫畫翻譯工作流。從智慧去字到自適應排版，告別繁瑣的機械勞動，將精力還給對漫畫的純粹熱愛。KomaKun! 程式碼完全開源，與社群開發者共同進化。",
+      "ctaJoin": "加入 Discord 頻道",
       "ctaGithub": "去 GitHub 點星"
     },
     "cta": {
@@ -115,13 +115,13 @@
     },
     "login": {
       "heading": "歡迎",
-      "description": "建立一個本機檔案即可開始，無需註冊帳號。",
-      "nameLabel": "暱稱",
+      "description": "輸入名字和電子郵件即可開始使用。",
+      "nameLabel": "名字",
       "nameRequired": "*",
-      "namePlaceholder": "你的暱稱",
+      "namePlaceholder": "你的名字",
       "emailLabel": "電子郵件",
-      "emailOptional": "（選填）",
       "emailPlaceholder": "you@example.com",
+      "emailInvalid": "請輸入有效的電子郵件地址。",
       "cancel": "取消",
       "submit": "進入 KomaKun!"
     }
@@ -309,8 +309,7 @@
     "watermarkUploaded": "浮水印已上傳",
     "rendersAtCorner": "將顯示在右下角",
     "uploadWatermark": "上傳浮水印圖片",
-    "watermarkSize": "浮水印大小",
-    "small": "小",
+    "watermarkSize": "浮水印大小",    "watermarkOpacity": "透明度",    "small": "小",
     "default": "預設",
     "large": "大",
     "translationLlm": "翻譯 LLM",

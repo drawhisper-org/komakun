@@ -8,6 +8,7 @@ import { useLayerVisibilityStore } from "@/stores/layer-visibility-store";
 import { useOcrUiStore } from "@/stores/ocr-store";
 import { useEditorSelectionStore } from "@/stores/editor-selection-store";
 import { useHistoryStore } from "@/stores/history-store";
+import { useAppConfigStore } from "@/stores/app-config-store";
 
 /* ── Shared types ── */
 
@@ -128,6 +129,10 @@ export function KonvaStage({
   // Images
   const originalImage = useImage(activePage?.originalImageBase64 ?? null);
   const cleanedImage = useImage(activePage?.cleanedImageBase64 ?? null);
+
+  // Watermark
+  const watermarkConfig = useAppConfigStore((s) => s.watermark);
+  const watermarkImage = useImage(watermarkConfig.enabled ? watermarkConfig.imageBase64 : null);
 
   // Marching ants for persistent selection indicator
   const marchingOffset = useMarchingAnts(!!pendingSelection);
@@ -669,7 +674,27 @@ export function KonvaStage({
         </Layer>
 
         {/* Layer 6: Watermark */}
-        <Layer visible={visibility.watermark} />
+        <Layer visible={visibility.watermark} listening={false}>
+          {watermarkImage && originalImage && (() => {
+            const sizeScale = watermarkConfig.size === "small" ? 0.08 : watermarkConfig.size === "large" ? 0.2 : 0.12;
+            const imgW = originalImage.width;
+            const maxWmW = imgW * sizeScale;
+            const wmAspect = watermarkImage.width / watermarkImage.height;
+            const wmW = Math.min(maxWmW, watermarkImage.width);
+            const wmH = wmW / wmAspect;
+            const margin = imgW * 0.02;
+            return (
+              <KonvaImage
+                image={watermarkImage}
+                x={originalImage.width - wmW - margin}
+                y={originalImage.height - wmH - margin}
+                width={wmW}
+                height={wmH}
+                opacity={watermarkConfig.opacity}
+              />
+            );
+          })()}
+        </Layer>
 
         {/* Layer 7: Selection overlay (drawing + persistent marching ants) */}
         <Layer listening={false}>

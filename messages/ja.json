@@ -99,9 +99,9 @@
     },
     "community": {
       "badge": "オープンソース・コミュニティ駆動",
-      "heading": "翻訳者が作った、翻訳者のためのツール",
-      "description": "KomaKun! はスキャンレーション現場から生まれました。手作業 OCR のつらさ、消字の面倒さ、植字の大変さ——すべて経験した上で、もっと良いツールを作りました。無料・オープンソース、誰でも使えます。",
-      "ctaJoin": "KomaKun! に参加",
+      "heading": "個人の情熱から生まれ、翻訳コミュニティへ捧ぐ。",
+      "description": "AI技術でマンガ翻訳ワークフローを再構築。スマートな文字除去から適応型組版まで、面倒な手作業に別れを告げ、マンガへの純粋な愛に集中しましょう。KomaKun! は完全オープンソース、コミュニティと共に進化します。",
+      "ctaJoin": "Discord に参加",
       "ctaGithub": "GitHub でスターする"
     },
     "cta": {
@@ -115,13 +115,13 @@
     },
     "login": {
       "heading": "ようこそ",
-      "description": "ローカルプロフィールを作成するだけで始められます。アカウント登録は不要です。",
-      "nameLabel": "ニックネーム",
+      "description": "名前とメールアドレスを入力して始めましょう。",
+      "nameLabel": "名前",
       "nameRequired": "*",
       "namePlaceholder": "あなたの名前",
       "emailLabel": "メールアドレス",
-      "emailOptional": "（任意）",
       "emailPlaceholder": "you@example.com",
+      "emailInvalid": "有効なメールアドレスを入力してください。",
       "cancel": "キャンセル",
       "submit": "KomaKun! を始める"
     }
@@ -309,8 +309,7 @@
     "watermarkUploaded": "透かしをアップロードしました",
     "rendersAtCorner": "右下に表示されます",
     "uploadWatermark": "透かし画像をアップロード",
-    "watermarkSize": "透かしサイズ",
-    "small": "小",
+    "watermarkSize": "透かしサイズ",    "watermarkOpacity": "不透明度",    "small": "小",
     "default": "標準",
     "large": "大",
     "translationLlm": "翻訳 LLM",

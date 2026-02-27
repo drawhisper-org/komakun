@@ -5,6 +5,8 @@ import { ThemeProvider } from "@/components/providers/theme-provider";
 import { IntlProvider } from "@/components/providers/intl-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { KofiOverlay } from "@/components/ui/kofi-button";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,6 +30,8 @@ export default function RootLayout({
             <TooltipProvider>
               {children}
               <Toaster position="bottom-right" />
+              <KofiOverlay />
+              <Analytics />
             </TooltipProvider>
           </IntlProvider>
         </ThemeProvider>
