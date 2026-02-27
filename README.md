@@ -68,7 +68,7 @@ Settings → **Vision API** → Paste your key → **Validate & Save**.
 
 #### 2. Replicate API Key (Inpainting + LLM Translation) — Recommended
 
-A single Replicate key powers **both** LaMa inpainting (smart text cleaning) **and** LLM translation. This is the recommended setup — only 2 API keys total for the full workflow.
+A single Replicate key powers **both** inpainting (smart text cleaning) **and** LLM translation. This is the recommended setup — only 2 API keys total for the full workflow.
 
 **How to create:**
 
@@ -184,7 +184,7 @@ KomaKun! 依赖外部 API 实现 OCR、图像修复和翻译。如果选择 Repl
 
 #### 2. Replicate API 密钥（图像修复 + LLM 翻译）— 推荐
 
-一个 Replicate 密钥同时驱动 **LaMa 图像修复**（智能去字）**和** LLM 翻译。这是推荐的配置方式——全流程总共只需 2 个 API 密钥。
+一个 Replicate 密钥同时驱动**图像修复**（智能去字）**和** LLM 翻译。这是推荐的配置方式——全流程总共只需 2 个 API 密钥。
 
 **如何创建：**
 
@@ -300,7 +300,7 @@ OCR（マンガページのテキスト検出）に使用します。これが�
 
 #### 2. Replicate API キー（修復 + LLM 翻訳）— 推奨
 
-Replicate キー 1 つで **LaMa 修復**（スマート消字）**と** LLM 翻訳の**両方**が使えます。推奨のセットアップで、全ワークフローに必要なキーは合計 2 つだけです。
+Replicate キー 1 つで**インペインティング**（スマート消字）**と** LLM 翻訳の**両方**が使えます。推奨のセットアップで、全ワークフローに必要なキーは合計 2 つだけです。
 
 **作成手順：**
 

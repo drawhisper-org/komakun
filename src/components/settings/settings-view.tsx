@@ -785,7 +785,7 @@ function AIConfigSection() {
         </SettingRow>
       </SettingsCard>
 
-      {/* ── Image Inpainting (LaMa) ── */}
+      {/* ── Image Inpainting ── */}
       <SettingsCard
         title={t("imageInpainting")}
         description={t("inpaintDesc")}
