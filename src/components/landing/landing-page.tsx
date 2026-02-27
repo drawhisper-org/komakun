@@ -580,8 +580,10 @@ export function LandingPage() {
   const [scrolled, setScrolled] = useState(false);
   const locale = useLocaleStore((s) => s.locale);
 
-  /** Right-card banner: pick image by locale (zh/zh-TW → zh, else en) */
-  const rightBannerLang: 'zh' | 'en' = (locale === 'zh' || locale === 'zh-TW') ? 'zh' : 'en';
+  /** Right-card banner: default based on locale, clickable to toggle */
+  const [rightBannerLang, setRightBannerLang] = useState<'zh' | 'en'>(
+    (locale === 'zh' || locale === 'zh-TW') ? 'zh' : 'en'
+  );
 
   /* ── Nav scroll state ── */
   useEffect(() => {
@@ -871,7 +873,8 @@ export function LandingPage() {
             initial={{ opacity: 0, x: 80, rotate: 14 }}
             animate={{ opacity: 1, x: 0, rotate: 6 }}
             transition={{ delay: 0.8, duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-            className="pointer-events-auto absolute top-[8%] -right-[8%] h-[88%] w-[48%] overflow-hidden rounded-3xl border border-primary/10 shadow-2xl shadow-black/20 md:-right-[1%] md:h-[92%] md:w-[38%]"
+            onClick={() => setRightBannerLang(prev => prev === 'zh' ? 'en' : 'zh')}
+            className="pointer-events-auto absolute top-[8%] -right-[8%] h-[88%] w-[48%] cursor-pointer overflow-hidden rounded-3xl border border-primary/10 shadow-2xl shadow-black/20 transition-shadow hover:shadow-primary/15 md:-right-[1%] md:h-[92%] md:w-[38%]"
           >
             {/* Always-mounted images — crossfade via opacity, no mount/unmount clipping issues */}
             <div className="absolute inset-0">
@@ -907,7 +910,7 @@ export function LandingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.25 }}
-                className="absolute right-[20%] bottom-4 flex items-center gap-1.5 rounded-full bg-primary/60 px-3.5 py-1.5 backdrop-blur-md md:right-[26%]"
+                className="absolute right-[20%] bottom-4 flex items-center gap-1.5 rounded-full bg-primary/60 px-3.5 py-1.5 backdrop-blur-md transition-colors hover:bg-primary/80 md:right-[26%]"
               >
                 <TranslateIcon weight="bold" className="h-3 w-3 text-white/80" />
                 <p className={`text-[9px] font-semibold tracking-wide text-white md:text-[11px] ${inter.className}`}>
