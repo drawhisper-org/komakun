@@ -80,15 +80,31 @@ function createModel(
         },
       });
 
-    case "local":
+    case "local": {
+      // Validate localEndpoint to prevent SSRF — only allow loopback addresses
+      const endpoint = localEndpoint || "http://localhost:11434/v1";
+      const parsed = new URL(endpoint);
+      const host = parsed.hostname.toLowerCase();
+      const isLoopback =
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "[::1]" ||
+        host === "::1" ||
+        host === "0.0.0.0";
+      if (!isLoopback) {
+        throw new Error(
+          "Local endpoint must be a localhost address (e.g. http://localhost:11434/v1)"
+        );
+      }
       return new ChatOpenAI({
         model: model || "default",
         apiKey: "not-needed",
         temperature: 0.3,
         configuration: {
-          baseURL: localEndpoint || "http://localhost:11434/v1",
+          baseURL: endpoint,
         },
       });
+    }
 
     default:
       throw new Error(`Unsupported provider: ${provider}`);

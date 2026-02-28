@@ -5,8 +5,6 @@
  * Docs: https://cloud.google.com/vision/docs/ocr
  */
 
-const VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate";
-
 /* ── Public types ── */
 
 export interface OcrTextBlock {
@@ -34,26 +32,17 @@ export async function validateVisionKey(
 ): Promise<{ valid: boolean; error?: string }> {
   if (!apiKey.trim()) return { valid: false, error: "API key is required" };
   try {
-    // Send a tiny 1×1 white PNG to test auth
-    const tinyPng =
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQIHWP4zwAAAgEBAMFOED8AAAAASUVORK5CYII=";
-    const res = await fetch(`${VISION_API_URL}?key=${apiKey}`, {
+    const res = await fetch("/api/vision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        requests: [
-          {
-            image: { content: tinyPng },
-            features: [{ type: "TEXT_DETECTION", maxResults: 1 }],
-          },
-        ],
-      }),
+      body: JSON.stringify({ apiKey, mode: "validate" }),
     });
     if (res.ok) return { valid: true };
-    const data = await res.json().catch(() => null);
+    let data: Record<string, unknown> | null = null;
+    try { data = await res.json(); } catch { /* non-JSON response */ }
     return {
       valid: false,
-      error: data?.error?.message || `HTTP ${res.status}`,
+      error: (data?.error as string) || `HTTP ${res.status}`,
     };
   } catch (err) {
     return {
@@ -73,35 +62,29 @@ export async function detectText(
 ): Promise<OcrResult> {
   if (!apiKey) throw new Error("Vision API key is not configured");
 
-  // Strip data URL prefix if present
-  const base64Content = imageBase64.includes(",")
-    ? imageBase64.split(",")[1]
-    : imageBase64;
-
-  const body = {
-    requests: [
-      {
-        image: { content: base64Content },
-        features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
-        imageContext: {
-          languageHints: ["ja", "zh", "ko", "en"],
-        },
-      },
-    ],
-  };
-
-  const response = await fetch(`${VISION_API_URL}?key=${apiKey}`, {
+  const response = await fetch("/api/vision", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ apiKey, imageBase64, mode: "detect" }),
   });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Vision API error: ${response.status} — ${error}`);
+  // Safe JSON parsing — platform may return non-JSON errors (e.g. 413)
+  const text = await response.text();
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(
+      response.status === 413
+        ? "Image is too large for the server. Try using a smaller image."
+        : `Vision API error: ${response.status} — ${text.slice(0, 120)}`
+    );
   }
 
-  const data = await response.json();
+  if (!response.ok) {
+    throw new Error((data.error as string) || `Vision API error: ${response.status}`);
+  }
+
   return parseVisionResponse(data);
 }
 
