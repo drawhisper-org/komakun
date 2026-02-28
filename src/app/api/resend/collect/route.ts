@@ -41,8 +41,7 @@ export async function POST(req: NextRequest) {
 
     const resend = new Resend(apiKey);
 
-    const { data, error } = await resend.contacts.create({
-      email,
+    const contactPayload = {
       firstName: firstName || undefined,
       lastName: lastName || undefined,
       unsubscribed: false,
@@ -50,7 +49,27 @@ export async function POST(req: NextRequest) {
         waitlist: waitlist ? 1 : 0,
         region: locale || "en",
       },
-    });
+    };
+
+    // Check if contact already exists
+    const { data: existing } = await resend.contacts.get({ email });
+
+    let data;
+    let error;
+
+    if (existing?.id) {
+      // Update existing contact
+      ({ data, error } = await resend.contacts.update({
+        id: existing.id,
+        ...contactPayload,
+      }));
+    } else {
+      // Create new contact
+      ({ data, error } = await resend.contacts.create({
+        email,
+        ...contactPayload,
+      }));
+    }
 
     if (error) {
       console.error("[resend/collect] Resend error:", error);
