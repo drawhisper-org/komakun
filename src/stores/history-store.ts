@@ -3,21 +3,25 @@ import type { TextBlock, InpaintStroke } from "./project-store";
 
 /**
  * Snapshot of the undoable parts of a page.
- * We only track textBlocks + inpaintStrokes — not images or OCR status,
- * since those are "main process" actions (OCR / Clean BG / Translate).
+ * Tracks textBlocks, inpaintStrokes, and the cleaned background image.
  */
 interface PageSnapshot {
   pageId: string;
   textBlocks: TextBlock[];
   inpaintStrokes: InpaintStroke[];
+  cleanedImageBase64: string | null;
+}
+
+/** Per-page undo/redo stacks. */
+interface PageHistory {
+  past: PageSnapshot[];
+  future: PageSnapshot[];
 }
 
 interface HistoryState {
-  /** Past snapshots (most recent last). */
-  past: PageSnapshot[];
-  /** Future snapshots for redo (most recent last). */
-  future: PageSnapshot[];
-  /** Max number of undo steps to keep. */
+  /** Per-page history stacks keyed by pageId. */
+  pages: Record<string, PageHistory>;
+  /** Max number of undo steps to keep per page. */
   maxSteps: number;
 }
 
@@ -25,74 +29,106 @@ interface HistoryActions {
   /**
    * Push the current state as a snapshot before mutating.
    * Call this BEFORE applying the change to project-store.
+   * The pageId is extracted from the snapshot.
    */
   pushSnapshot: (snapshot: PageSnapshot) => void;
   /** Undo: pop from past, push current into future, return snapshot to restore. */
   undo: (currentSnapshot: PageSnapshot) => PageSnapshot | null;
   /** Redo: pop from future, push current into past, return snapshot to restore. */
   redo: (currentSnapshot: PageSnapshot) => PageSnapshot | null;
-  /** Clear all history (e.g. when switching pages or projects). */
+  /** Clear history for all pages (e.g. when switching projects). */
   clearHistory: () => void;
-  /** Whether undo is available. */
-  canUndo: () => boolean;
-  /** Whether redo is available. */
-  canRedo: () => boolean;
+  /** Clear history for a specific page. */
+  clearPageHistory: (pageId: string) => void;
+  /** Whether undo is available for a given page. */
+  canUndo: (pageId: string) => boolean;
+  /** Whether redo is available for a given page. */
+  canRedo: (pageId: string) => boolean;
 }
 
 export type HistoryStore = HistoryState & HistoryActions;
 
+const EMPTY_PAGE_HISTORY: PageHistory = { past: [], future: [] };
+
 export const useHistoryStore = create<HistoryStore>((set, get) => ({
-  past: [],
-  future: [],
-  maxSteps: 50,
+  pages: {},
+  maxSteps: 30,
 
   pushSnapshot: (snapshot) => {
-    const { past } = get();
-    // Dedup: skip if identical to last snapshot
-    if (past.length > 0) {
-      const last = past[past.length - 1];
+    const { pages, maxSteps } = get();
+    const pageId = snapshot.pageId;
+    const ph = pages[pageId] ?? EMPTY_PAGE_HISTORY;
+
+    // Dedup: skip if identical to last snapshot for this page
+    if (ph.past.length > 0) {
+      const last = ph.past[ph.past.length - 1];
       if (
-        last.pageId === snapshot.pageId &&
         last.textBlocks.length === snapshot.textBlocks.length &&
         last.inpaintStrokes.length === snapshot.inpaintStrokes.length &&
+        last.cleanedImageBase64 === snapshot.cleanedImageBase64 &&
         JSON.stringify(last.textBlocks) === JSON.stringify(snapshot.textBlocks) &&
         JSON.stringify(last.inpaintStrokes) === JSON.stringify(snapshot.inpaintStrokes)
       ) {
         return;
       }
     }
+
     set((s) => ({
-      past: [...s.past.slice(-(s.maxSteps - 1)), snapshot],
-      // Any new action invalidates the redo stack
-      future: [],
+      pages: {
+        ...s.pages,
+        [pageId]: {
+          past: [...ph.past.slice(-(maxSteps - 1)), snapshot],
+          future: [], // new action invalidates redo
+        },
+      },
     }));
   },
 
   undo: (currentSnapshot) => {
-    const { past } = get();
-    if (past.length === 0) return null;
-    const prev = past[past.length - 1];
+    const pageId = currentSnapshot.pageId;
+    const ph = get().pages[pageId] ?? EMPTY_PAGE_HISTORY;
+    if (ph.past.length === 0) return null;
+
+    const prev = ph.past[ph.past.length - 1];
     set((s) => ({
-      past: s.past.slice(0, -1),
-      future: [...s.future, currentSnapshot],
+      pages: {
+        ...s.pages,
+        [pageId]: {
+          past: ph.past.slice(0, -1),
+          future: [...ph.future, currentSnapshot],
+        },
+      },
     }));
     return prev;
   },
 
   redo: (currentSnapshot) => {
-    const { future } = get();
-    if (future.length === 0) return null;
-    const next = future[future.length - 1];
+    const pageId = currentSnapshot.pageId;
+    const ph = get().pages[pageId] ?? EMPTY_PAGE_HISTORY;
+    if (ph.future.length === 0) return null;
+
+    const next = ph.future[ph.future.length - 1];
     set((s) => ({
-      future: s.future.slice(0, -1),
-      past: [...s.past, currentSnapshot],
+      pages: {
+        ...s.pages,
+        [pageId]: {
+          future: ph.future.slice(0, -1),
+          past: [...ph.past, currentSnapshot],
+        },
+      },
     }));
     return next;
   },
 
-  clearHistory: () => set({ past: [], future: [] }),
+  clearHistory: () => set({ pages: {} }),
 
-  canUndo: () => get().past.length > 0,
+  clearPageHistory: (pageId) =>
+    set((s) => {
+      const { [pageId]: _, ...rest } = s.pages;
+      return { pages: rest };
+    }),
 
-  canRedo: () => get().future.length > 0,
+  canUndo: (pageId) => (get().pages[pageId]?.past.length ?? 0) > 0,
+
+  canRedo: (pageId) => (get().pages[pageId]?.future.length ?? 0) > 0,
 }));

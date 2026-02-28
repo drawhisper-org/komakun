@@ -36,6 +36,7 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { useTranslations } from "next-intl";
+import { useTheme } from "next-themes";
 
 type FilterMode = "all" | "starred";
 type SortBy = "last-viewed" | "alphabetical" | "date-created";
@@ -77,6 +78,17 @@ function HomeLanguageSwitcher() {
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function GitHubIcon() {
+  const { resolvedTheme } = useTheme();
+  return (
+    <img
+      src={resolvedTheme === "dark" ? "/images/Github-Symbol-Dark.svg" : "/images/Github-Symbol.svg"}
+      alt="GitHub"
+      className="h-4 w-4"
+    />
   );
 }
 
@@ -208,8 +220,24 @@ export function HomeView() {
               {t("recents")}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <HomeLanguageSwitcher />
+            <a
+              href="https://github.com/drawhisper-org/komakun"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant"
+            >
+              <GitHubIcon />
+            </a>
+            <a
+              href="https://discord.gg/dazJmnpJCw"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant"
+            >
+              <img src="/images/Discord-Symbol-Blurple.svg" alt="Discord" className="h-4 w-4" />
+            </a>
           </div>
         </div>
 

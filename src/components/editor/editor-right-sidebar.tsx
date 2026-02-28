@@ -33,6 +33,8 @@ import {
   StackIcon,
   TrashIcon,
   GitMergeIcon,
+  PlusIcon,
+  TrashSimpleIcon,
 } from "@phosphor-icons/react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,6 +81,8 @@ import { exportPageAsPng, exportPageAsPsd, exportProjectAsZip, exportProjectAsPs
 import { inpaintImage } from "@/lib/lama-inpaint";
 import { translateTextBlocks } from "@/lib/translate-service";
 import { useRecentFontsStore } from "@/stores/recent-fonts-store";
+import { useCustomFontsStore, registerFontFace, parseFontName, type CustomFont } from "@/stores/custom-fonts-store";
+import { computeAutoFitFontSize } from "@/components/editor/canvas/konva-stage";
 import { track } from "@vercel/analytics";
 
 /* \u2500\u2500 Platform detection \u2500\u2500 */
@@ -128,15 +132,9 @@ export function EditorRightSidebar() {
   const pushSnapshot = useHistoryStore((s) => s.pushSnapshot);
   const undoHistory = useHistoryStore((s) => s.undo);
   const redoHistory = useHistoryStore((s) => s.redo);
-  const clearHistory = useHistoryStore((s) => s.clearHistory);
-  const canUndo = useHistoryStore((s) => s.past.length > 0);
-  const canRedo = useHistoryStore((s) => s.future.length > 0);
-
-  // Clear history when switching pages
   const activePageId = activePage?.id;
-  useEffect(() => {
-    clearHistory();
-  }, [activePageId, clearHistory]);
+  const canUndo = useHistoryStore((s) => activePageId ? (s.pages[activePageId]?.past.length ?? 0) > 0 : false);
+  const canRedo = useHistoryStore((s) => activePageId ? (s.pages[activePageId]?.future.length ?? 0) > 0 : false);
 
   const getCurrentSnapshot = useCallback(() => {
     if (!activePage) return null;
@@ -144,6 +142,7 @@ export function EditorRightSidebar() {
       pageId: activePage.id,
       textBlocks: [...activePage.textBlocks],
       inpaintStrokes: [...(activePage.inpaintStrokes ?? [])],
+      cleanedImageBase64: activePage.cleanedImageBase64 ?? null,
     };
   }, [activePage]);
 
@@ -155,6 +154,7 @@ export function EditorRightSidebar() {
       restorePageSnapshot(snapshot.pageId, {
         textBlocks: snapshot.textBlocks,
         inpaintStrokes: snapshot.inpaintStrokes,
+        cleanedImageBase64: snapshot.cleanedImageBase64,
       });
       toast.success(t("undone"));
     }
@@ -168,6 +168,7 @@ export function EditorRightSidebar() {
       restorePageSnapshot(snapshot.pageId, {
         textBlocks: snapshot.textBlocks,
         inpaintStrokes: snapshot.inpaintStrokes,
+        cleanedImageBase64: snapshot.cleanedImageBase64,
       });
       toast.success(t("redone"));
     }
@@ -410,6 +411,14 @@ export function EditorRightSidebar() {
 
     setCleanLoading(true);
     try {
+      // Push undo snapshot before cleaning
+      pushSnapshot({
+        pageId: activePage.id,
+        textBlocks: [...activePage.textBlocks],
+        inpaintStrokes: [...(activePage.inpaintStrokes ?? [])],
+        cleanedImageBase64: activePage.cleanedImageBase64 ?? null,
+      });
+
       const img = new Image();
       img.src = sourceBase64;
       await new Promise<void>((resolve, reject) => {
@@ -438,7 +447,7 @@ export function EditorRightSidebar() {
     } finally {
       setCleanLoading(false);
     }
-  }, [activePage, cleanLoading, inpaintMode, replicateApiKey, localInpaintUrl, setCleanedImage, clearInpaintStrokes, t]);
+  }, [activePage, cleanLoading, inpaintMode, replicateApiKey, localInpaintUrl, setCleanedImage, clearInpaintStrokes, pushSnapshot, t]);
 
   // ── Auto-translate ──
   const handleTranslate = useCallback(async () => {
@@ -897,8 +906,8 @@ function TextBlockSection({
   label: string;
   blocks: TextBlock[];
   pageId: string;
-  pushSnapshot: (snapshot: { pageId: string; textBlocks: TextBlock[]; inpaintStrokes: { id: string; points: number[]; brushSize: number }[] }) => void;
-  getCurrentSnapshot: () => { pageId: string; textBlocks: TextBlock[]; inpaintStrokes: { id: string; points: number[]; brushSize: number }[] } | null;
+  pushSnapshot: (snapshot: { pageId: string; textBlocks: TextBlock[]; inpaintStrokes: { id: string; points: number[]; brushSize: number }[]; cleanedImageBase64: string | null }) => void;
+  getCurrentSnapshot: () => { pageId: string; textBlocks: TextBlock[]; inpaintStrokes: { id: string; points: number[]; brushSize: number }[]; cleanedImageBase64: string | null } | null;
 }) {
   const selectedBlockId = useEditorSelectionStore((s) => s.selectedBlockId);
   const selectBlock = useEditorSelectionStore((s) => s.selectBlock);
@@ -1082,13 +1091,28 @@ function DesignPanel() {
   const t = useTranslations("editor");
 
   const selectedBlockId = useEditorSelectionStore((s) => s.selectedBlockId);
+  const selectedBlockIds = useEditorSelectionStore((s) => s.selectedBlockIds);
   const activePage = useProjectStore(
     (s) => s.pages.find((p) => p.id === s.activePageId) ?? null
   );
   const updateTextBlock = useProjectStore((s) => s.updateTextBlock);
   const pushSnapshot = useHistoryStore((s) => s.pushSnapshot);
 
-  const selectedBlock = activePage?.textBlocks.find((b) => b.id === selectedBlockId) ?? null;
+  // Gather all selected blocks (multi-select or single)
+  const selectedBlocks = useMemo(() => {
+    if (!activePage) return [];
+    if (selectedBlockIds.size > 0) {
+      return activePage.textBlocks.filter((b) => selectedBlockIds.has(b.id));
+    }
+    if (selectedBlockId) {
+      const single = activePage.textBlocks.find((b) => b.id === selectedBlockId);
+      return single ? [single] : [];
+    }
+    return [];
+  }, [activePage, selectedBlockId, selectedBlockIds]);
+
+  const selectedBlock = selectedBlocks[0] ?? null;
+  const isMulti = selectedBlocks.length > 1;
   const pageId = activePage?.id;
 
   const pushSnap = useCallback(() => {
@@ -1097,16 +1121,19 @@ function DesignPanel() {
       pageId: activePage.id,
       textBlocks: [...activePage.textBlocks],
       inpaintStrokes: [...(activePage.inpaintStrokes ?? [])],
+      cleanedImageBase64: activePage.cleanedImageBase64 ?? null,
     });
   }, [activePage, pushSnapshot]);
 
   const update = useCallback(
     (attrs: Partial<TextBlock>) => {
-      if (!pageId || !selectedBlockId) return;
+      if (!pageId || selectedBlocks.length === 0) return;
       pushSnap();
-      updateTextBlock(pageId, selectedBlockId, attrs);
+      for (const block of selectedBlocks) {
+        updateTextBlock(pageId, block.id, attrs);
+      }
     },
-    [pageId, selectedBlockId, pushSnap, updateTextBlock]
+    [pageId, selectedBlocks, pushSnap, updateTextBlock]
   );
 
   // For continuous inputs (typing, color dragging) — one undo snapshot per edit session
@@ -1114,14 +1141,16 @@ function DesignPanel() {
 
   const updateLive = useCallback(
     (attrs: Partial<TextBlock>) => {
-      if (!pageId || !selectedBlockId) return;
+      if (!pageId || selectedBlocks.length === 0) return;
       if (!liveSnapRef.current) {
         pushSnap();
         liveSnapRef.current = true;
       }
-      updateTextBlock(pageId, selectedBlockId, attrs);
+      for (const block of selectedBlocks) {
+        updateTextBlock(pageId, block.id, attrs);
+      }
     },
-    [pageId, selectedBlockId, pushSnap, updateTextBlock]
+    [pageId, selectedBlocks, pushSnap, updateTextBlock]
   );
 
   const commitLive = useCallback(() => {
@@ -1131,7 +1160,7 @@ function DesignPanel() {
   // Reset snapshot flag when selected block changes
   useEffect(() => {
     liveSnapRef.current = false;
-  }, [selectedBlockId]);
+  }, [selectedBlockId, selectedBlockIds]);
 
   // Current values
   const fontFamily = selectedBlock?.fontFamily ?? DEFAULT_FONT;
@@ -1146,24 +1175,125 @@ function DesignPanel() {
   const letterSpacing = selectedBlock?.letterSpacing ?? 0;
   const strokeEnabled = selectedBlock?.strokeEnabled ?? false;
   const strokeWidth = selectedBlock?.strokeWidth ?? 4;
+  const contentAlign = selectedBlock?.contentAlign ?? "middle";
+  const padding = selectedBlock?.padding ?? 0;
+  const autoFit = selectedBlock?.autoFit ?? false;
+
+  // Auto-fit: recompute font size when block content/dimensions change while autoFit is on
+  useEffect(() => {
+    if (!autoFit || !pageId || selectedBlocks.length === 0) return;
+    for (const block of selectedBlocks) {
+      if (!block.autoFit) continue;
+      const optimal = computeAutoFitFontSize(block);
+      if (optimal !== block.fontSize) {
+        updateTextBlock(pageId, block.id, { fontSize: optimal });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    // Rerun when text, dimensions, padding, or font properties change
+    selectedBlock?.translatedText,
+    selectedBlock?.originalText,
+    selectedBlock?.width,
+    selectedBlock?.height,
+    selectedBlock?.padding,
+    selectedBlock?.lineHeight,
+    selectedBlock?.letterSpacing,
+    selectedBlock?.fontFamily,
+    selectedBlock?.fontWeight,
+    selectedBlock?.fontStyle,
+    selectedBlock?.textDirection,
+    autoFit,
+  ]);
 
   const recentFonts = useRecentFontsStore((s) => s.recentFonts);
   const trackFont = useRecentFontsStore((s) => s.trackFont);
 
+  // Custom fonts
+  const customFonts = useCustomFontsStore((s) => s.fonts);
+  const addCustomFont = useCustomFontsStore((s) => s.addFont);
+  const removeCustomFont = useCustomFontsStore((s) => s.removeFont);
+  const fontInputRef = useRef<HTMLInputElement>(null);
+
+  // All known fonts (built-in + custom) for lookup
+  const allFonts = useMemo(
+    () => [
+      ...MANGA_FONTS,
+      ...customFonts.map((f) => ({ label: f.label, value: f.value, category: "custom" as const })),
+    ],
+    [customFonts]
+  );
+
   const recentFontEntries = useMemo(
     () => recentFonts
-      .map((v) => MANGA_FONTS.find((f) => f.value === v))
+      .map((v) => allFonts.find((f) => f.value === v))
       .filter((f): f is NonNullable<typeof f> => !!f),
-    [recentFonts]
+    [recentFonts, allFonts]
   );
 
   const recentSet = useMemo(() => new Set(recentFonts), [recentFonts]);
+  const customFontEntries = customFonts.filter((f) => !recentSet.has(f.value));
   const comicFonts = MANGA_FONTS.filter((f) => f.category === "comic" && !recentSet.has(f.value));
   const handFonts = MANGA_FONTS.filter((f) => f.category === "handwriting" && !recentSet.has(f.value));
   const jpFonts = MANGA_FONTS.filter((f) => f.category === "japanese" && !recentSet.has(f.value));
   const cnFonts = MANGA_FONTS.filter((f) => f.category === "chinese" && !recentSet.has(f.value));
   const krFonts = MANGA_FONTS.filter((f) => f.category === "korean" && !recentSet.has(f.value));
   const sysFonts = MANGA_FONTS.filter((f) => f.category === "system" && !recentSet.has(f.value));
+
+  /** Handle custom font file import */
+  const handleFontImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so same file can be re-selected
+    e.target.value = "";
+
+    const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+    if (file.size > MAX_SIZE) {
+      toast.error(t("fontTooLarge"));
+      return;
+    }
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["ttf", "otf", "woff", "woff2"].includes(ext ?? "")) {
+      toast.error(t("fontInvalidFormat"));
+      return;
+    }
+
+    try {
+      const label = parseFontName(file.name);
+      const value = `Custom-${label}`;
+
+      // Read as data URL
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const font: CustomFont = {
+        label,
+        value,
+        dataUrl,
+        fileName: file.name,
+        addedAt: Date.now(),
+      };
+
+      // Register with browser
+      await registerFontFace(font);
+
+      // Persist
+      addCustomFont(font);
+
+      // Auto-select the new font
+      trackFont(value);
+      update({ fontFamily: value });
+
+      toast.success(t("fontImported", { name: label }));
+    } catch {
+      toast.error(t("fontImportFailed"));
+    }
+  }, [addCustomFont, trackFont, update, t]);
 
   if (!selectedBlock) {
     return (
@@ -1181,74 +1311,113 @@ function DesignPanel() {
         <Label className="text-[10px] font-medium text-on-surface-variant/60">
           {t("fontFamily")}
         </Label>
-        <Select
-          value={fontFamily}
-          onValueChange={(v) => { trackFont(v); update({ fontFamily: v }); }}
-        >
-          <SelectTrigger className="h-8 border-outline-variant/25 bg-surface-variant/10 text-[12px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {recentFontEntries.length > 0 && (
+        <div className="flex items-center gap-1">
+          <Select
+            value={fontFamily}
+            onValueChange={(v) => { trackFont(v); update({ fontFamily: v }); }}
+          >
+            <SelectTrigger className="h-8 flex-1 border-outline-variant/25 bg-surface-variant/10 text-[12px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {recentFontEntries.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-on-surface-variant/40">★ Recent</SelectLabel>
+                  {recentFontEntries.map((f) => (
+                    <SelectItem key={`recent-${f.value}`} value={f.value} style={{ fontFamily: f.value }}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {customFontEntries.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-on-surface-variant/40">{t("customFonts")}</SelectLabel>
+                  {customFontEntries.map((f) => (
+                    <SelectItem key={`custom-${f.value}`} value={f.value} style={{ fontFamily: f.value }}>
+                      <span className="flex items-center gap-1.5">
+                        {f.label}
+                        <button
+                          className="ml-auto inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-on-surface-variant/40 hover:text-error"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            removeCustomFont(f.value);
+                            toast.success(t("fontRemoved", { name: f.label }));
+                          }}
+                        >
+                          <TrashSimpleIcon weight="bold" className="h-3 w-3" />
+                        </button>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
               <SelectGroup>
-                <SelectLabel className="text-[10px] text-on-surface-variant/40">★ Recent</SelectLabel>
-                {recentFontEntries.map((f) => (
-                  <SelectItem key={`recent-${f.value}`} value={f.value} style={{ fontFamily: f.value }}>
+                <SelectLabel className="text-[10px] text-on-surface-variant/40">Comic</SelectLabel>
+                {comicFonts.map((f) => (
+                  <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
                     {f.label}
                   </SelectItem>
                 ))}
               </SelectGroup>
-            )}
-            <SelectGroup>
-              <SelectLabel className="text-[10px] text-on-surface-variant/40">Comic</SelectLabel>
-              {comicFonts.map((f) => (
-                <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-            <SelectGroup>
-              <SelectLabel className="text-[10px] text-on-surface-variant/40">Handwriting</SelectLabel>
-              {handFonts.map((f) => (
-                <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-            <SelectGroup>
-              <SelectLabel className="text-[10px] text-on-surface-variant/40">Japanese</SelectLabel>
-              {jpFonts.map((f) => (
-                <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-            <SelectGroup>
-              <SelectLabel className="text-[10px] text-on-surface-variant/40">Chinese</SelectLabel>
-              {cnFonts.map((f) => (
-                <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-            <SelectGroup>
-              <SelectLabel className="text-[10px] text-on-surface-variant/40">Korean</SelectLabel>
-              {krFonts.map((f) => (
-                <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-            <SelectGroup>
-              <SelectLabel className="text-[10px] text-on-surface-variant/40">System</SelectLabel>
-              {sysFonts.map((f) => (
-                <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-on-surface-variant/40">Handwriting</SelectLabel>
+                {handFonts.map((f) => (
+                  <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-on-surface-variant/40">Japanese</SelectLabel>
+                {jpFonts.map((f) => (
+                  <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-on-surface-variant/40">Chinese</SelectLabel>
+                {cnFonts.map((f) => (
+                  <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-on-surface-variant/40">Korean</SelectLabel>
+                {krFonts.map((f) => (
+                  <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-on-surface-variant/40">System</SelectLabel>
+                {sysFonts.map((f) => (
+                  <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {/* Import custom font button */}
+          <input
+            ref={fontInputRef}
+            type="file"
+            accept=".ttf,.otf,.woff,.woff2"
+            className="hidden"
+            onChange={handleFontImport}
+          />
+          <button
+            onClick={() => fontInputRef.current?.click()}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-outline-variant/25 bg-surface-variant/10 text-on-surface-variant/60 transition-colors hover:bg-surface-variant/30 hover:text-on-surface"
+            title={t("importFont")}
+          >
+            <PlusIcon weight="bold" className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* \u2500\u2500 Style: Bold / Italic \u2500\u2500 */}
@@ -1356,36 +1525,6 @@ function DesignPanel() {
         </FieldGroup>
       </div>
 
-      {/* \u2500\u2500 Stroke \u2500\u2500 */}
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <button
-            onClick={() => update({ strokeEnabled: !strokeEnabled })}
-            className={`flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border text-[11px] font-medium transition-all ${
-              strokeEnabled
-                ? "border-primary/30 bg-primary-container/30 text-on-primary-container"
-                : "border-outline-variant/20 text-on-surface-variant/60 hover:bg-surface-variant/20"
-            }`}
-          >
-            {t("stroke")}
-          </button>
-        </div>
-        {strokeEnabled && (
-          <FieldGroup label={t("strokeWidth")}>
-            <Input
-              type="number"
-              min={1}
-              max={20}
-              step={1}
-              value={strokeWidth}
-              onChange={(e) => updateLive({ strokeWidth: Math.max(1, Number(e.target.value) || 4) })}
-              onBlur={commitLive}
-              className="h-8 w-20 border-outline-variant/25 bg-surface-variant/10 text-[12px] tabular-nums"
-            />
-          </FieldGroup>
-        )}
-      </div>
-
       {/* \u2500\u2500 Text Direction \u2500\u2500 */}
       <FieldGroup label={t("textDirection")}>
         <div className="flex gap-1">
@@ -1453,10 +1592,102 @@ function DesignPanel() {
                       : "border-outline-variant/20 text-on-surface-variant/50 hover:bg-surface-variant/20"
                   }`}
                 >
-                  <AlignIcon weight="fill" className="h-4 w-4" />
+                  <AlignIcon weight="bold" className="h-4 w-4" />
                 </button>
               );
             })
+          )}
+        </div>
+      </FieldGroup>
+
+      {/* \u2500\u2500 Content Align \u2500\u2500 */}
+      <FieldGroup label={t("contentAlign")}>
+        <div className="flex gap-1">
+          {(["top", "middle", "bottom"] as const).map((val) => {
+            const Icon =
+              val === "top" ? AlignTopSimpleIcon :
+              val === "middle" ? AlignCenterVerticalSimpleIcon :
+              AlignBottomSimpleIcon;
+            return (
+              <button
+                key={val}
+                onClick={() => update({ contentAlign: val })}
+                className={`flex h-8 flex-1 items-center justify-center rounded-lg border transition-all ${
+                  contentAlign === val
+                    ? "border-primary/30 bg-primary-container/30 text-on-primary-container"
+                    : "border-outline-variant/20 text-on-surface-variant/50 hover:bg-surface-variant/20"
+                }`}
+              >
+                <Icon weight="fill" className="h-4 w-4" />
+              </button>
+            );
+          })}
+        </div>
+      </FieldGroup>
+
+      {/* \u2500\u2500 Padding & Auto Fit \u2500\u2500 */}
+      <FieldGroup label={t("padding")}>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={0}
+            max={40}
+            step={1}
+            value={padding}
+            onChange={(e) => updateLive({ padding: Math.max(0, Number(e.target.value) || 0) })}
+            onBlur={commitLive}
+            className="h-8 flex-1 border-outline-variant/25 bg-surface-variant/10 text-[12px] tabular-nums"
+          />
+          <button
+            onClick={() => {
+              if (!autoFit) {
+                // Toggling ON — compute optimal font size for each selected block
+                if (!pageId || selectedBlocks.length === 0) return;
+                pushSnap();
+                for (const block of selectedBlocks) {
+                  const optimalSize = computeAutoFitFontSize(block);
+                  updateTextBlock(pageId, block.id, { autoFit: true, fontSize: optimalSize });
+                }
+              } else {
+                update({ autoFit: false });
+              }
+            }}
+            className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border px-3 text-[11px] font-medium transition-all ${
+              autoFit
+                ? "border-primary/30 bg-primary-container/30 text-on-primary-container"
+                : "border-outline-variant/20 text-on-surface-variant/60 hover:bg-surface-variant/20"
+            }`}
+          >
+            {t("autoFit")}
+          </button>
+        </div>
+      </FieldGroup>
+
+      {/* \u2500\u2500 Stroke \u2500\u2500 */}
+      <FieldGroup label={t("stroke")}>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => update({ strokeEnabled: !strokeEnabled })}
+            className={`flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border text-[11px] font-medium transition-all ${
+              strokeEnabled
+                ? "border-primary/30 bg-primary-container/30 text-on-primary-container"
+                : "border-outline-variant/20 text-on-surface-variant/60 hover:bg-surface-variant/20"
+            }`}
+          >
+            {t("stroke")}
+          </button>
+          {strokeEnabled && (
+            <Input
+              type="number"
+              min={1}
+              max={20}
+              step={1}
+              value={strokeWidth}
+              onChange={(e) => updateLive({ strokeWidth: Math.max(1, Number(e.target.value) || 4) })}
+              onBlur={commitLive}
+              className="h-8 w-20 border-outline-variant/25 bg-surface-variant/10 text-[12px] tabular-nums"
+              placeholder={t("strokeWidth")}
+            />
           )}
         </div>
       </FieldGroup>

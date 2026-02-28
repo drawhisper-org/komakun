@@ -204,6 +204,14 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
   const letterSpacing = block.letterSpacing ?? 0;
   const strokeEnabled = block.strokeEnabled ?? false;
   const strokeW = block.strokeWidth ?? 4;
+  const contentAlign = block.contentAlign || "middle";
+  const pad = block.padding ?? 0;
+
+  // Effective inner dimensions after padding
+  const innerW = Math.max(1, block.width - pad * 2);
+  const innerH = Math.max(1, block.height - pad * 2);
+  const innerX = block.x + pad;
+  const innerY = block.y + pad;
 
   // Apply rotation around the block origin
   if (rotation !== 0) {
@@ -224,7 +232,7 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
     const normalizedText = normalizeMangaText(displayText);
     const charH = fontSize * 1.15 + letterSpacing;
     const colW = fontSize * lineH;
-    const charsPerCol = Math.max(1, Math.floor(block.height / charH));
+    const charsPerCol = Math.max(1, Math.floor(innerH / charH));
 
     // Tokenize & build columns (mirrors konva-stage)
     const segments = normalizedText.split("\n");
@@ -251,24 +259,32 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
     }
 
     const totalColumnsW = columns.length * colW;
-    const slack = Math.max(0, block.width - totalColumnsW);
+    const slack = Math.max(0, innerW - totalColumnsW);
     const groupOffset =
       align === "center" ? slack / 2 :
       align === "right" ? slack :
       0;
 
-    // Clip to block bounds (matches Konva Group clip)
+    // Clip to inner bounds (matches Konva Group clip with padding)
     ctx.beginPath();
-    ctx.rect(block.x, block.y, block.width, block.height);
+    ctx.rect(innerX, innerY, innerW, innerH);
     ctx.clip();
 
     for (let ci = 0; ci < columns.length; ci++) {
       const col = columns[ci];
-      const cx = block.x + groupOffset + (totalColumnsW - (ci + 0.5) * colW);
+      const cx = innerX + groupOffset + (totalColumnsW - (ci + 0.5) * colW);
       let cellIndex = 0;
 
+      // Content align: vertical offset per column
+      const colCells = col.reduce((n, t) => n + tokenCellCountExport(t), 0);
+      const colContentH = colCells * charH;
+      const vSlack = Math.max(0, innerH - colContentH);
+      const colYOffset =
+        contentAlign === "middle" ? vSlack / 2 :
+        contentAlign === "bottom" ? vSlack : 0;
+
       for (const token of col) {
-        const tokenY = block.y + cellIndex * charH;
+        const tokenY = innerY + colYOffset + cellIndex * charH;
         const cellsUsed = tokenCellCountExport(token);
         cellIndex += cellsUsed;
 
@@ -381,16 +397,19 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
     ctx.textAlign = align as CanvasTextAlign;
     ctx.textBaseline = "top";
 
-    const lines = wrapText(ctx, normalizeMangaText(displayText), block.width);
+    const lines = wrapText(ctx, normalizeMangaText(displayText), innerW);
     const lineHeightPx = fontSize * lineH;
     const totalTextH = lines.length * lineHeightPx;
-    // Vertical align middle like Konva
-    const startY = block.y + Math.max(0, (block.height - totalTextH) / 2);
+    // Content align (top / middle / bottom)
+    const startY =
+      contentAlign === "top" ? innerY :
+      contentAlign === "bottom" ? innerY + Math.max(0, innerH - totalTextH) :
+      innerY + Math.max(0, (innerH - totalTextH) / 2);
 
     let xPos: number;
-    if (align === "center") xPos = block.x + block.width / 2;
-    else if (align === "right") xPos = block.x + block.width;
-    else xPos = block.x;
+    if (align === "center") xPos = innerX + innerW / 2;
+    else if (align === "right") xPos = innerX + innerW;
+    else xPos = innerX;
 
     lines.forEach((line, i) => {
       const ly = startY + i * lineHeightPx;

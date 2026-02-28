@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { EditorLeftSidebar } from "@/components/editor/editor-left-sidebar";
 import { EditorRightSidebar } from "@/components/editor/editor-right-sidebar";
 import { EditorCanvas } from "@/components/editor/editor-canvas";
 import { ManagePagesView } from "@/components/editor/manage-pages-view";
 import { BottomToolbar } from "@/components/editor/bottom-toolbar";
+import { hydrateCustomFonts } from "@/stores/custom-fonts-store";
 import type { ActiveTool } from "@/components/editor/canvas/konva-stage";
 
 interface EditorLayoutProps {
@@ -18,6 +19,9 @@ export function EditorLayout({ projectId }: EditorLayoutProps) {
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 });
   const [fitSignal, setFitSignal] = useState(0);
   const [brushSize, setBrushSize] = useState(20);
+
+  // Hydrate custom fonts from IDB on mount
+  useEffect(() => { hydrateCustomFonts(); }, []);
 
   const handleZoomIn = useCallback(() => {
     setViewport((v) => {

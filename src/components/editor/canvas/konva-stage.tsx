@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, memo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import { Stage, Layer, Image as KonvaImage, Text as KonvaText, Rect, Line, Transformer, Group, Circle } from "react-konva";
 import type Konva from "konva";
 import { useProjectStore, type TextBlock } from "@/stores/project-store";
@@ -109,8 +109,11 @@ export function KonvaStage({
 
   // Selection store
   const selectedBlockId = useEditorSelectionStore((s) => s.selectedBlockId);
+  const selectedBlockIds = useEditorSelectionStore((s) => s.selectedBlockIds);
   const selectedStrokeId = useEditorSelectionStore((s) => s.selectedStrokeId);
   const selectBlock = useEditorSelectionStore((s) => s.selectBlock);
+  const selectBlocks = useEditorSelectionStore((s) => s.selectBlocks);
+  const toggleBlock = useEditorSelectionStore((s) => s.toggleBlock);
   const selectStroke = useEditorSelectionStore((s) => s.selectStroke);
   const clearAllSelections = useEditorSelectionStore((s) => s.clearAll);
 
@@ -123,6 +126,7 @@ export function KonvaStage({
       pageId: activePage.id,
       textBlocks: [...activePage.textBlocks],
       inpaintStrokes: [...(activePage.inpaintStrokes ?? [])],
+      cleanedImageBase64: activePage.cleanedImageBase64 ?? null,
     });
   }, [activePage, pushSnapshot]);
 
@@ -136,6 +140,27 @@ export function KonvaStage({
 
   // Marching ants for persistent selection indicator
   const marchingOffset = useMarchingAnts(!!pendingSelection);
+
+  // Shared map so ResizableBlockRect can coordinate multi-drag
+  const blockNodesRef = useRef<Map<string, Konva.Rect>>(new Map());
+
+  // Stable ref callbacks for bulk-drag commits (avoids busting memo)
+  const bulkChangeRef = useRef<(changes: { id: string; x: number; y: number }[]) => void>(() => {});
+  bulkChangeRef.current = (changes) => {
+    if (!activePage) return;
+    for (const { id, x, y } of changes) {
+      updateTextBlock(activePage.id, id, { x, y });
+    }
+  };
+
+  // Stable ref callback for bulk-resize commits (group transform)
+  const bulkResizeRef = useRef<(changes: { id: string; x: number; y: number; width: number; height: number }[]) => void>(() => {});
+  bulkResizeRef.current = (changes) => {
+    if (!activePage) return;
+    for (const { id, x, y, width, height } of changes) {
+      updateTextBlock(activePage.id, id, { x, y, width, height });
+    }
+  };
 
   // Ref for arrow-key undo debounce (single snapshot per key-hold)
   const arrowSnapRef = useRef(false);
@@ -165,10 +190,16 @@ export function KonvaStage({
       e.preventDefault();
 
       const pageId = activePage?.id;
-      const { selectedBlockId: blkId, selectedStrokeId: strId } =
+      const { selectedBlockId: blkId, selectedBlockIds: blkIds, selectedStrokeId: strId } =
         useEditorSelectionStore.getState();
 
-      // Priority: selected block → selected stroke → pending selection
+      // Priority: multi-selected blocks → single block → selected stroke → pending selection
+      if (blkIds.size > 1 && pageId) {
+        pushCurrentSnapshot();
+        for (const id of blkIds) removeTextBlock(pageId, id);
+        clearAllSelections();
+        return;
+      }
       if (blkId && pageId) {
         pushCurrentSnapshot();
         removeTextBlock(pageId, blkId);
@@ -197,8 +228,9 @@ export function KonvaStage({
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
       const pageId = activePage?.id;
-      const { selectedBlockId: blkId } = useEditorSelectionStore.getState();
-      if (!blkId || !pageId) return;
+      const { selectedBlockId: blkId, selectedBlockIds: blkIds } = useEditorSelectionStore.getState();
+      const ids = blkIds.size > 0 ? [...blkIds] : blkId ? [blkId] : [];
+      if (ids.length === 0 || !pageId) return;
 
       e.preventDefault();
       const step = e.shiftKey ? 10 : 1;
@@ -209,15 +241,17 @@ export function KonvaStage({
       if (e.key === "ArrowRight") delta.x = step;
 
       const page = useProjectStore.getState().pages.find((p) => p.id === pageId);
-      const block = page?.textBlocks.find((b) => b.id === blkId);
-      if (!block) return;
+      if (!page) return;
 
       // Push undo snapshot only on first arrow press (debounce via ref)
       if (!arrowSnapRef.current) {
         pushCurrentSnapshot();
         arrowSnapRef.current = true;
       }
-      updateTextBlock(pageId, blkId, { x: block.x + delta.x, y: block.y + delta.y });
+      for (const id of ids) {
+        const block = page.textBlocks.find((b) => b.id === id);
+        if (block) updateTextBlock(pageId, id, { x: block.x + delta.x, y: block.y + delta.y });
+      }
     };
 
     const handleArrowKeyUp = (e: KeyboardEvent) => {
@@ -328,22 +362,35 @@ export function KonvaStage({
   const [selEnd, setSelEnd] = useState<{ x: number; y: number } | null>(null);
   const [lassoPoints, setLassoPoints] = useState<number[]>([]);
 
+  /* ── Drag-select state (select tool multi-select) ── */
+  const [isDragSelecting, setIsDragSelecting] = useState(false);
+  const [dragSelStart, setDragSelStart] = useState<{ x: number; y: number } | null>(null);
+  const [dragSelEnd, setDragSelEnd] = useState<{ x: number; y: number } | null>(null);
+
   /* ── Inpaint brush drawing state ── */
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingPoints, setDrawingPoints] = useState<number[]>([]);
 
-  /* ── Read primary theme color from CSS variable ── */
+  /* ── Read theme colors from CSS variables ── */
   const [primaryColor, setPrimaryColor] = useState("#6750A4");
+  const [secondaryColor, setSecondaryColor] = useState("#5B5D72");
+  const [tertiaryColor, setTertiaryColor] = useState("#775368");
+  const [errorColor, setErrorColor] = useState("#BA1A1A");
   useEffect(() => {
-    const readPrimary = () => {
-      const raw = getComputedStyle(document.documentElement)
-        .getPropertyValue("--primary")
-        .trim();
-      if (raw) setPrimaryColor(raw);
+    const readColors = () => {
+      const cs = getComputedStyle(document.documentElement);
+      const primary = cs.getPropertyValue("--primary").trim();
+      const secondary = cs.getPropertyValue("--secondary").trim();
+      const tertiary = cs.getPropertyValue("--tertiary").trim();
+      const destructive = cs.getPropertyValue("--destructive").trim();
+      if (primary) setPrimaryColor(primary);
+      if (secondary) setSecondaryColor(secondary);
+      if (tertiary) setTertiaryColor(tertiary);
+      if (destructive) setErrorColor(destructive);
     };
-    readPrimary();
+    readColors();
     // Re-read when theme might change
-    const observer = new MutationObserver(readPrimary);
+    const observer = new MutationObserver(readColors);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["style", "class"],
@@ -411,15 +458,21 @@ export function KonvaStage({
       }
 
       if (activeTool === "select") {
-        // Click on empty space (stage bg or image layer) clears selection.
-        // Clicks on bounding box Rects / inpaint Lines are handled in their
-        // own onClick props.
         const target = e.target;
         const isBackground =
           target === stageRef.current ||
           target.getClassName() === "Image";
         if (isBackground) {
-          clearAllSelections();
+          // Start drag-select on background
+          const pt = toImageSpace();
+          if (pt) {
+            clearAllSelections();
+            setIsDragSelecting(true);
+            setDragSelStart(pt);
+            setDragSelEnd(pt);
+          } else {
+            clearAllSelections();
+          }
         }
         return;
       }
@@ -465,11 +518,15 @@ export function KonvaStage({
         if (activeTool === "lasso-select") {
           setLassoPoints((prev) => [...prev, pt.x, pt.y]);
         }
+        return;
       }
 
-      // Text tool drag preview handled by isSelecting + selStart/selEnd
+      if (isDragSelecting) {
+        const pt = toImageSpace();
+        if (pt) setDragSelEnd(pt);
+      }
     },
-    [viewport, onViewportChange, isSelecting, isDrawing, activeTool, toImageSpace]
+    [viewport, onViewportChange, isSelecting, isDragSelecting, isDrawing, activeTool, toImageSpace]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -569,7 +626,40 @@ export function KonvaStage({
       setSelEnd(null);
       setLassoPoints([]);
     }
-  }, [isSelecting, isDrawing, drawingPoints, brushSize, activePage?.id, selStart, selEnd, activeTool, lassoPoints, addInpaintStroke, addTextBlocks, selectBlock, pushCurrentSnapshot]);
+
+    // Finalize drag-select (select tool multi-select)
+    if (isDragSelecting && dragSelStart && dragSelEnd) {
+      const rx = Math.min(dragSelStart.x, dragSelEnd.x);
+      const ry = Math.min(dragSelStart.y, dragSelEnd.y);
+      const rw = Math.abs(dragSelEnd.x - dragSelStart.x);
+      const rh = Math.abs(dragSelEnd.y - dragSelStart.y);
+
+      if (rw > 5 && rh > 5 && activePage) {
+        // Find blocks fully contained within the drag rect (all 4 corners inside)
+        const hits = activePage.textBlocks.filter((b) => {
+          return (
+            b.x >= rx &&
+            b.y >= ry &&
+            b.x + b.width <= rx + rw &&
+            b.y + b.height <= ry + rh
+          );
+        });
+        if (hits.length > 0) {
+          selectBlocks(hits.map((b) => b.id));
+        }
+      }
+
+      setIsDragSelecting(false);
+      setDragSelStart(null);
+      setDragSelEnd(null);
+      return;
+    }
+    if (isDragSelecting) {
+      setIsDragSelecting(false);
+      setDragSelStart(null);
+      setDragSelEnd(null);
+    }
+  }, [isSelecting, isDragSelecting, isDrawing, drawingPoints, brushSize, activePage, dragSelStart, dragSelEnd, selStart, selEnd, activeTool, lassoPoints, addInpaintStroke, addTextBlocks, selectBlock, selectBlocks, pushCurrentSnapshot]);
 
   /* ── Cursor ── */
 
@@ -608,6 +698,17 @@ export function KonvaStage({
           y: Math.min(selStart.y, selEnd.y),
           width: Math.abs(selEnd.x - selStart.x),
           height: Math.abs(selEnd.y - selStart.y),
+        }
+      : null;
+
+  /* ── Drag-select rect (select tool multi-select) ── */
+  const dragSelectRect =
+    isDragSelecting && dragSelStart && dragSelEnd
+      ? {
+          x: Math.min(dragSelStart.x, dragSelEnd.x),
+          y: Math.min(dragSelStart.y, dragSelEnd.y),
+          width: Math.abs(dragSelEnd.x - dragSelStart.x),
+          height: Math.abs(dragSelEnd.y - dragSelStart.y),
         }
       : null;
 
@@ -654,19 +755,33 @@ export function KonvaStage({
         {/* Layer 3: Bounding Boxes — OCR + Manual, all resizable */}
         <Layer visible={visibility.text} listening={activeTool === "select" || activeTool === "text"}>
           {activePage?.textBlocks.map((block) => {
-            const isSelected = selectedBlockId === block.id;
+            const isSingleSelected = selectedBlockId === block.id;
+            const isInMultiSelect = selectedBlockIds.has(block.id);
             const canInteract = activeTool === "select";
             return (
               <ResizableBlockRect
                 key={`bbox-${block.id}`}
                 block={block}
-                isSelected={isSelected && canInteract}
+                isSelected={(isSingleSelected || isInMultiSelect) && canInteract}
+                isMultiSelected={isInMultiSelect && selectedBlockIds.size > 1}
                 strokeW={strokeW}
                 scale={viewport.scale}
                 listening={canInteract}
                 stageRef={stageRef}
                 primaryColor={primaryColor}
-                onSelect={() => { if (canInteract) selectBlock(block.id); }}
+                secondaryColor={secondaryColor}
+                tertiaryColor={tertiaryColor}
+                errorColor={errorColor}
+                blockNodesRef={blockNodesRef}
+                bulkChangeRef={bulkChangeRef}
+                onSelect={(e?: Konva.KonvaEventObject<MouseEvent>) => {
+                  if (!canInteract) return;
+                  if (e?.evt?.shiftKey) {
+                    toggleBlock(block.id);
+                  } else {
+                    selectBlock(block.id);
+                  }
+                }}
                 onBeforeChange={pushCurrentSnapshot}
                 onChange={(attrs) => {
                   if (activePage?.id) {
@@ -676,6 +791,19 @@ export function KonvaStage({
               />
             );
           })}
+          {/* Multi-select group bounding box with resize */}
+          {selectedBlockIds.size > 1 && activeTool === "select" && activePage && (
+            <MultiSelectGroup
+              blocks={activePage.textBlocks.filter((b) => selectedBlockIds.has(b.id))}
+              strokeW={strokeW}
+              scale={viewport.scale}
+              tertiaryColor={tertiaryColor}
+              stageRef={stageRef}
+              onBeforeChange={pushCurrentSnapshot}
+              bulkResizeRef={bulkResizeRef}
+              bulkChangeRef={bulkChangeRef}
+            />
+          )}
         </Layer>
 
         {/* Layer 4: Text Nodes */}
@@ -750,6 +878,29 @@ export function KonvaStage({
 
         {/* Layer 7: Selection overlay (drawing + persistent marching ants) */}
         <Layer listening={false}>
+          {/* ── Drag-select area (select tool multi-select) ── */}
+          {dragSelectRect && dragSelectRect.width > 2 && dragSelectRect.height > 2 && (
+            <>
+              <Rect
+                x={dragSelectRect.x}
+                y={dragSelectRect.y}
+                width={dragSelectRect.width}
+                height={dragSelectRect.height}
+                fill={tertiaryColor}
+                opacity={0.12}
+                listening={false}
+              />
+              <Rect
+                x={dragSelectRect.x}
+                y={dragSelectRect.y}
+                width={dragSelectRect.width}
+                height={dragSelectRect.height}
+                stroke={tertiaryColor}
+                strokeWidth={0.5 / viewport.scale}
+                listening={false}
+              />
+            </>
+          )}
           {/* ── Drawing in-progress ── */}
           {isSelecting && drawingRect && activeTool === "rect-select" && (
             <Rect
@@ -843,27 +994,210 @@ export function KonvaStage({
   );
 }
 
+/* ── Multi-select group bounding box with proportional resize ── */
+function MultiSelectGroup({
+  blocks,
+  strokeW,
+  scale,
+  tertiaryColor,
+  stageRef,
+  onBeforeChange,
+  bulkResizeRef,
+  bulkChangeRef,
+}: {
+  blocks: TextBlock[];
+  strokeW: number;
+  scale: number;
+  tertiaryColor: string;
+  stageRef: React.RefObject<Konva.Stage | null>;
+  onBeforeChange: () => void;
+  bulkResizeRef: React.MutableRefObject<(changes: { id: string; x: number; y: number; width: number; height: number }[]) => void>;
+  bulkChangeRef: React.MutableRefObject<(changes: { id: string; x: number; y: number }[]) => void>;
+}) {
+  const groupRectRef = useRef<Konva.Rect>(null);
+  const groupTrRef = useRef<Konva.Transformer>(null);
+
+  // Snapshot of child rects at the start of a transform, relative to the group box
+  const transformCtxRef = useRef<{
+    groupX: number;
+    groupY: number;
+    groupW: number;
+    groupH: number;
+    children: { id: string; rx: number; ry: number; rw: number; rh: number }[];
+  } | null>(null);
+
+  // Compute bounding box of all selected blocks
+  const minX = Math.min(...blocks.map((b) => b.x));
+  const minY = Math.min(...blocks.map((b) => b.y));
+  const maxX = Math.max(...blocks.map((b) => b.x + b.width));
+  const maxY = Math.max(...blocks.map((b) => b.y + b.height));
+  const groupW = maxX - minX;
+  const groupH = maxY - minY;
+
+  // Attach transformer to the group rect
+  useEffect(() => {
+    if (groupTrRef.current && groupRectRef.current) {
+      groupTrRef.current.nodes([groupRectRef.current]);
+      groupTrRef.current.getLayer()?.batchDraw();
+    }
+  }, [blocks.length, minX, minY, groupW, groupH]);
+
+  const handleTransformStart = () => {
+    transformCtxRef.current = {
+      groupX: minX,
+      groupY: minY,
+      groupW,
+      groupH,
+      children: blocks.map((b) => ({
+        id: b.id,
+        rx: (b.x - minX) / groupW,
+        ry: (b.y - minY) / groupH,
+        rw: b.width / groupW,
+        rh: b.height / groupH,
+      })),
+    };
+  };
+
+  const handleTransformEnd = () => {
+    const node = groupRectRef.current;
+    const ctx = transformCtxRef.current;
+    if (!node || !ctx) return;
+
+    onBeforeChange();
+    const sx = node.scaleX();
+    const sy = node.scaleY();
+    const newX = node.x();
+    const newY = node.y();
+    const newW = Math.max(20, groupW * sx);
+    const newH = Math.max(14, groupH * sy);
+
+    // Reset scale on the proxy rect
+    node.scaleX(1);
+    node.scaleY(1);
+
+    // Proportionally update each child block
+    const changes = ctx.children.map((c) => ({
+      id: c.id,
+      x: newX + c.rx * newW,
+      y: newY + c.ry * newH,
+      width: Math.max(10, c.rw * newW),
+      height: Math.max(10, c.rh * newH),
+    }));
+    bulkResizeRef.current(changes);
+    transformCtxRef.current = null;
+  };
+
+  // Drag: snapshot at start, apply delta at end
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleDragStart = () => {
+    dragStartRef.current = { x: minX, y: minY };
+  };
+
+  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
+    const start = dragStartRef.current;
+    if (!start) return;
+    onBeforeChange();
+    const dx = e.target.x() - start.x;
+    const dy = e.target.y() - start.y;
+    const changes = blocks.map((b) => ({
+      id: b.id,
+      x: b.x + dx,
+      y: b.y + dy,
+    }));
+    bulkChangeRef.current(changes);
+    dragStartRef.current = null;
+  };
+
+  const accent = tertiaryColor;
+  const anchorSz = 8;
+  const anchorCorner = 4;
+
+  return (
+    <>
+      <Rect
+        ref={groupRectRef}
+        x={minX}
+        y={minY}
+        width={groupW}
+        height={groupH}
+        stroke={accent}
+        strokeWidth={strokeW * 0.5}
+        dash={[3 / scale, 2 / scale]}
+        fill="transparent"
+        draggable
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onTransformStart={handleTransformStart}
+        onTransformEnd={handleTransformEnd}
+        onMouseEnter={() => {
+          const container = stageRef.current?.container();
+          if (container) container.style.cursor = "move";
+        }}
+        onMouseLeave={() => {
+          const container = stageRef.current?.container();
+          if (container) container.style.cursor = "";
+        }}
+      />
+      <Transformer
+        ref={groupTrRef}
+        rotateEnabled={false}
+        keepRatio={false}
+        enabledAnchors={[
+          "top-left", "top-right", "bottom-left", "bottom-right",
+        ]}
+        anchorSize={anchorSz}
+        anchorCornerRadius={anchorCorner}
+        anchorStroke={accent}
+        anchorStrokeWidth={1.5}
+        anchorFill="#fff"
+        borderStroke={accent}
+        borderStrokeWidth={0}
+        borderDash={[0]}
+        boundBoxFunc={(_oldBox, newBox) => {
+          if (Math.abs(newBox.width) < 20 || Math.abs(newBox.height) < 14) {
+            return _oldBox;
+          }
+          return newBox;
+        }}
+      />
+    </>
+  );
+}
+
 /* ── Resizable Block Rect — unified for OCR & manual blocks ── */
 const ResizableBlockRect = memo(function ResizableBlockRect({
   block,
   isSelected,
+  isMultiSelected,
   strokeW,
   scale,
   listening,
   stageRef,
   primaryColor,
+  secondaryColor,
+  tertiaryColor,
+  errorColor,
+  blockNodesRef,
+  bulkChangeRef,
   onSelect,
   onBeforeChange,
   onChange,
 }: {
   block: TextBlock;
   isSelected: boolean;
+  isMultiSelected: boolean;
   strokeW: number;
   scale: number;
   listening: boolean;
   stageRef: React.RefObject<Konva.Stage | null>;
   primaryColor: string;
-  onSelect: () => void;
+  secondaryColor: string;
+  tertiaryColor: string;
+  errorColor: string;
+  blockNodesRef: React.MutableRefObject<Map<string, Konva.Rect>>;
+  bulkChangeRef: React.MutableRefObject<(changes: { id: string; x: number; y: number }[]) => void>;
+  onSelect: (e?: Konva.KonvaEventObject<MouseEvent>) => void;
   onBeforeChange: () => void;
   onChange: (attrs: Partial<TextBlock>) => void;
 }) {
@@ -871,16 +1205,76 @@ const ResizableBlockRect = memo(function ResizableBlockRect({
   const trRef = useRef<Konva.Transformer>(null);
   const isManual = block.source === "manual";
 
+  // Register this node in the shared map for multi-drag coordination
   useEffect(() => {
-    if (isSelected && trRef.current && shapeRef.current) {
+    if (shapeRef.current) blockNodesRef.current.set(block.id, shapeRef.current);
+    return () => { blockNodesRef.current.delete(block.id); };
+  }, [block.id, blockNodesRef]);
+
+  useEffect(() => {
+    if (isSelected && !isMultiSelected && trRef.current && shapeRef.current) {
       trRef.current.nodes([shapeRef.current]);
       trRef.current.getLayer()?.batchDraw();
     }
-  }, [isSelected]);
+  }, [isSelected, isMultiSelected]);
+
+  /* ── Multi-drag tracking ── */
+  const dragCtxRef = useRef<{
+    startX: number;
+    startY: number;
+    peers: Map<string, { x: number; y: number }>;
+  } | null>(null);
+
+  const handleDragStart = () => {
+    if (!isMultiSelected) return;
+    const ids = useEditorSelectionStore.getState().selectedBlockIds;
+    if (ids.size <= 1) return;
+    const peers = new Map<string, { x: number; y: number }>();
+    ids.forEach((id) => {
+      if (id !== block.id) {
+        const node = blockNodesRef.current.get(id);
+        if (node) peers.set(id, { x: node.x(), y: node.y() });
+      }
+    });
+    dragCtxRef.current = {
+      startX: shapeRef.current!.x(),
+      startY: shapeRef.current!.y(),
+      peers,
+    };
+  };
+
+  const handleDragMove = () => {
+    const ctx = dragCtxRef.current;
+    if (!ctx) return;
+    const dx = shapeRef.current!.x() - ctx.startX;
+    const dy = shapeRef.current!.y() - ctx.startY;
+    ctx.peers.forEach(({ x, y }, id) => {
+      const node = blockNodesRef.current.get(id);
+      if (node) {
+        node.x(x + dx);
+        node.y(y + dy);
+      }
+    });
+  };
 
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    onBeforeChange();
-    onChange({ x: e.target.x(), y: e.target.y() });
+    const ctx = dragCtxRef.current;
+    if (ctx) {
+      // Bulk-move: push one undo snapshot, then update all selected blocks
+      onBeforeChange();
+      const changes: { id: string; x: number; y: number }[] = [
+        { id: block.id, x: e.target.x(), y: e.target.y() },
+      ];
+      ctx.peers.forEach(({ x, y }, id) => {
+        const node = blockNodesRef.current.get(id);
+        if (node) changes.push({ id, x: node.x(), y: node.y() });
+      });
+      bulkChangeRef.current(changes);
+      dragCtxRef.current = null;
+    } else {
+      onBeforeChange();
+      onChange({ x: e.target.x(), y: e.target.y() });
+    }
   };
 
   const handleTransformEnd = () => {
@@ -903,12 +1297,32 @@ const ResizableBlockRect = memo(function ResizableBlockRect({
   // Theme-aware colors
   const ocrColor = primaryColor;
   const manualColor = primaryColor;
-  const selectedAccent = "#FF6B00";
+  const selectedAccent = tertiaryColor;
+  const multiSelectAccent = primaryColor;
 
-  const stroke = isSelected ? selectedAccent : (isManual ? manualColor : ocrColor);
-  const fill = isSelected
-    ? "rgba(255, 107, 0, 0.08)"
-    : "rgba(0, 0, 0, 0.01)";
+  // Detect text overflow — show warning color when text doesn't fit
+  const overflowing = useMemo(() => isTextOverflowing(block), [block]);
+  const overflowColor = errorColor;
+
+  const stroke = isMultiSelected
+    ? multiSelectAccent
+    : isSelected
+      ? (overflowing ? overflowColor : selectedAccent)
+      : overflowing
+        ? overflowColor
+        : (isManual ? manualColor : ocrColor);
+  const fill = isMultiSelected
+    ? undefined
+    : isSelected
+      ? (overflowing ? "rgba(186, 26, 26, 0.08)" : undefined)
+      : "rgba(0, 0, 0, 0.01)";
+
+  // Multi-selected blocks get solid border (no dash), single unselected OCR blocks get dashed
+  const dashStyle = isMultiSelected
+    ? undefined
+    : isManual
+      ? undefined
+      : (isSelected ? undefined : [6 / scale, 3 / scale]);
 
   // Anchor visual config — fixed screen-px (Transformer bypasses Stage transform)
   const anchorSz = 8;
@@ -924,15 +1338,17 @@ const ResizableBlockRect = memo(function ResizableBlockRect({
         height={block.height}
         rotation={block.rotation ?? 0}
         stroke={stroke}
-        strokeWidth={isSelected ? strokeW * 1.2 : strokeW * 0.8}
+        strokeWidth={isSelected ? strokeW * 1 : strokeW * 0.5}
         fill={fill}
-        dash={isManual ? undefined : (isSelected ? undefined : [6 / scale, 3 / scale])}
+        dash={dashStyle}
         cornerRadius={2 / scale}
         listening={listening}
-        draggable={isSelected}
+        draggable={isSelected && !isMultiSelected}
         perfectDrawEnabled={false}
-        onClick={onSelect}
-        onTap={onSelect}
+        onClick={(e) => onSelect(e)}
+        onTap={(e) => onSelect(e as unknown as Konva.KonvaEventObject<MouseEvent>)}
+        onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
         onMouseEnter={() => {
@@ -946,7 +1362,7 @@ const ResizableBlockRect = memo(function ResizableBlockRect({
           if (container) container.style.cursor = "";
         }}
       />
-      {isSelected && (
+      {isSelected && !isMultiSelected && (
         <Transformer
           ref={trRef}
           rotateEnabled={true}
@@ -955,7 +1371,6 @@ const ResizableBlockRect = memo(function ResizableBlockRect({
           keepRatio={false}
           enabledAnchors={[
             "top-left", "top-right", "bottom-left", "bottom-right",
-            "middle-left", "middle-right", "top-center", "bottom-center",
           ]}
           anchorSize={anchorSz}
           anchorCornerRadius={anchorCorner}
@@ -978,10 +1393,14 @@ const ResizableBlockRect = memo(function ResizableBlockRect({
 }, (prev, next) => (
   prev.block === next.block &&
   prev.isSelected === next.isSelected &&
+  prev.isMultiSelected === next.isMultiSelected &&
   prev.strokeW === next.strokeW &&
   prev.scale === next.scale &&
   prev.listening === next.listening &&
-  prev.primaryColor === next.primaryColor
+  prev.primaryColor === next.primaryColor &&
+  prev.secondaryColor === next.secondaryColor &&
+  prev.tertiaryColor === next.tertiaryColor &&
+  prev.errorColor === next.errorColor
 ));
 
 /* ── Text Block Node ── */
@@ -1087,6 +1506,160 @@ function tokenCellCount(t: VToken): number {
   return 1;
 }
 
+/* ── Overflow detection ── */
+
+/** Shared off-screen canvas for text measurement */
+let _measureCanvas: HTMLCanvasElement | null = null;
+function getMeasureCtx(): CanvasRenderingContext2D {
+  if (!_measureCanvas) _measureCanvas = document.createElement("canvas");
+  return _measureCanvas.getContext("2d")!;
+}
+
+/**
+ * CJK-aware word-wrap for off-screen measurement — mirrors export-utils wrapText.
+ */
+const CJK_RANGE_RE =
+  /[\u2E80-\u2FFF\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF]/;
+
+function tokeniseForWrap(text: string): string[] {
+  const tokens: string[] = [];
+  let buf = "";
+  for (const ch of text) {
+    if (CJK_RANGE_RE.test(ch)) {
+      if (buf) { tokens.push(buf); buf = ""; }
+      tokens.push(ch);
+    } else if (/\s/.test(ch)) {
+      if (buf) { tokens.push(buf); buf = ""; }
+      tokens.push(ch);
+    } else if (ch === "-") {
+      buf += ch;
+      tokens.push(buf);
+      buf = "";
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf) tokens.push(buf);
+  return tokens;
+}
+
+function measureWrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): number {
+  const paragraphs = text.split("\n");
+  let lineCount = 0;
+  for (const para of paragraphs) {
+    const tokens = tokeniseForWrap(para);
+    let currentLine = "";
+    for (const token of tokens) {
+      if (!currentLine && /^\s+$/.test(token)) continue;
+      const testLine = currentLine + token;
+      if (ctx.measureText(testLine).width > maxWidth && currentLine) {
+        lineCount++;
+        currentLine = /^\s+$/.test(token) ? "" : token;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine && ctx.measureText(currentLine).width > maxWidth) {
+      let charLine = "";
+      for (const ch of currentLine) {
+        const test = charLine + ch;
+        if (ctx.measureText(test).width > maxWidth && charLine) {
+          lineCount++;
+          charLine = ch;
+        } else {
+          charLine = test;
+        }
+      }
+      lineCount++;
+    } else {
+      lineCount++;
+    }
+  }
+  return lineCount;
+}
+
+/**
+ * Determine whether a TextBlock's content overflows its bounding box.
+ * Returns true if text doesn't fit.
+ */
+function isTextOverflowing(block: TextBlock): boolean {
+  const displayText = block.translatedText || block.originalText;
+  if (!displayText) return false;
+
+  const pad = block.padding ?? 0;
+  const innerW = Math.max(1, block.width - pad * 2);
+  const innerH = Math.max(1, block.height - pad * 2);
+  const fontSize = block.fontSize || 14;
+  const lineH = block.lineHeight ?? 1.2;
+  const letterSpacing = block.letterSpacing ?? 0;
+
+  if (block.textDirection === "vertical") {
+    const charH = fontSize * 1.15 + letterSpacing;
+    const colW = fontSize * lineH;
+    const charsPerCol = Math.max(1, Math.floor(innerH / charH));
+
+    const normalizedText = normalizeMangaText(displayText);
+    const segments = normalizedText.split("\n");
+    let totalCols = 0;
+    for (const seg of segments) {
+      const tokens = tokenizeVertical(seg);
+      if (tokens.length === 0) {
+        totalCols++;
+      } else {
+        let cells = 0;
+        let colCount = 0;
+        for (const tok of tokens) {
+          const c = tokenCellCount(tok);
+          if (cells + c > charsPerCol && colCount > 0) {
+            totalCols++;
+            cells = 0;
+          }
+          if (cells === 0) colCount = 1;
+          cells += c;
+        }
+        if (cells > 0) totalCols++;
+      }
+    }
+    return totalCols * colW > innerW;
+  }
+
+  // Horizontal: measure text wrapping
+  const ctx = getMeasureCtx();
+  const fontFamily = block.fontFamily || "Comic Neue, sans-serif";
+  const fontWeight = block.fontWeight || "normal";
+  const fontStyle = block.fontStyle || "normal";
+  ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+  // Always reset letterSpacing — the shared ctx retains the previous value
+  if ("letterSpacing" in ctx) {
+    (ctx as unknown as Record<string, string>).letterSpacing = `${letterSpacing}px`;
+  }
+  const lineCount = measureWrapLines(ctx, normalizeMangaText(displayText), innerW);
+  const totalTextH = lineCount * fontSize * lineH;
+  return totalTextH > innerH;
+}
+
+/**
+ * Binary-search for the largest font size (integer) that fits the block
+ * without overflowing. Returns the optimal fontSize, clamped to [4, currentFontSize].
+ */
+export function computeAutoFitFontSize(block: TextBlock): number {
+  const MAX_FONT = 200;
+  const MIN_FONT = 4;
+  // Binary-search the largest font size that doesn't overflow.
+  let lo = MIN_FONT;
+  let hi = MAX_FONT;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const test = { ...block, fontSize: mid };
+    if (isTextOverflowing(test)) {
+      hi = mid - 1;
+    } else {
+      lo = mid;
+    }
+  }
+  return lo;
+}
+
 const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { block: TextBlock; fontGeneration: number }) {
   // fontGeneration is used to force re-render when fonts finish loading
   void fontGeneration;
@@ -1104,6 +1677,12 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
   const letterSpacing = block.letterSpacing ?? 0;
   const strokeEnabled = block.strokeEnabled ?? false;
   const strokeW = block.strokeWidth ?? 4;
+  const contentAlign = block.contentAlign || "middle";
+  const pad = block.padding ?? 0;
+
+  // Effective inner dimensions after padding
+  const innerW = Math.max(1, block.width - pad * 2);
+  const innerH = Math.max(1, block.height - pad * 2);
 
   if (isVertical) {
     // Vertical text: multi-column right-to-left layout like real manga.
@@ -1114,7 +1693,7 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
     const fontSize = block.fontSize || 14;
     const charH = fontSize * 1.15 + letterSpacing; // character spacing including user letterSpacing
     const colW = fontSize * lineH; // column width driven by lineHeight (acts as column gap)
-    const charsPerCol = Math.max(1, Math.floor(block.height / charH));
+    const charsPerCol = Math.max(1, Math.floor(innerH / charH));
 
     // Normalize text for manga typesetting (ellipsis, etc.)
     const normalizedText = normalizeMangaText(displayText);
@@ -1152,7 +1731,7 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
     // Horizontal alignment of the column group within the block
     // "left" (top icon) → pack right (RTL start), "center" → center, "right" (bottom icon) → pack left
     const totalColumnsW = columns.length * colW;
-    const slack = Math.max(0, block.width - totalColumnsW);
+    const slack = Math.max(0, innerW - totalColumnsW);
     const groupOffset =
       align === "center" ? slack / 2 :
       align === "right" ? slack :
@@ -1165,22 +1744,28 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
     if (!hasSpecialTokens) {
       return (
         <Group
-          x={block.x}
-          y={block.y}
-          width={block.width}
-          height={block.height}
+          x={block.x + pad}
+          y={block.y + pad}
+          width={innerW}
+          height={innerH}
           rotation={rotation}
           clipX={0}
           clipY={0}
-          clipWidth={block.width}
-          clipHeight={block.height}
+          clipWidth={innerW}
+          clipHeight={innerH}
           listening={false}
         >
           {columns.map((col, ci) => {
             const colX = groupOffset + (totalColumnsW - (ci + 1) * colW);
+            const colCells = col.reduce((n, t) => n + (t.type === "char" ? 1 : 1), 0);
+            const colContentH = colCells * charH;
+            const vSlack = Math.max(0, innerH - colContentH);
+            const colYOffset =
+              contentAlign === "middle" ? vSlack / 2 :
+              contentAlign === "bottom" ? vSlack : 0;
             const sharedProps = {
               x: colX,
-              y: 0,
+              y: colYOffset,
               width: colW,
               text: col.map((t) => t.type === "char" ? t.text : "").join("\n"),
               fontSize,
@@ -1210,24 +1795,30 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
     // and em-dashes can receive custom rendering
     return (
       <Group
-        x={block.x}
-        y={block.y}
-        width={block.width}
-        height={block.height}
+        x={block.x + pad}
+        y={block.y + pad}
+        width={innerW}
+        height={innerH}
         rotation={rotation}
         clipX={0}
         clipY={0}
-        clipWidth={block.width}
-        clipHeight={block.height}
+        clipWidth={innerW}
+        clipHeight={innerH}
         listening={false}
       >
         {columns.map((col, ci) => {
           const colX = groupOffset + (totalColumnsW - (ci + 1) * colW);
           let cellIndex = 0; // tracks vertical position in cells
+          const colCells = col.reduce((n, t) => n + tokenCellCount(t), 0);
+          const colContentH = colCells * charH;
+          const vSlack = Math.max(0, innerH - colContentH);
+          const colYOffset =
+            contentAlign === "middle" ? vSlack / 2 :
+            contentAlign === "bottom" ? vSlack : 0;
           return (
             <Group key={ci}>
               {col.map((token, ti) => {
-                const tokenY = cellIndex * charH;
+                const tokenY = cellIndex * charH + colYOffset;
                 const cellsUsed = tokenCellCount(token);
                 cellIndex += cellsUsed;
 
@@ -1364,10 +1955,10 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
   }
 
   const horizProps = {
-    x: block.x,
-    y: block.y,
-    width: block.width,
-    height: block.height,
+    x: block.x + pad,
+    y: block.y + pad,
+    width: innerW,
+    height: innerH,
     rotation,
     text: normalizeMangaText(displayText),
     fontSize: block.fontSize || 14,
@@ -1376,7 +1967,7 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
     fontFamily,
     fontStyle: `${fontWeight === "bold" ? "bold" : ""} ${fontStyle}`.trim() || "normal",
     align,
-    verticalAlign: "middle" as const,
+    verticalAlign: contentAlign as "top" | "middle" | "bottom",
     wrap: "word" as const,
     listening: false,
   };

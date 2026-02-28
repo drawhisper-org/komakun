@@ -29,9 +29,9 @@ function useIsMac() {
   }, []);
 }
 
-/** Format a shortcut for display: ⌥V on Mac, Alt+V on Win */
-function formatShortcut(key: string, isMac: boolean) {
-  return isMac ? `⌥${key}` : `Alt+${key}`;
+/** Format a shortcut for display — single letter (Photoshop / Figma convention) */
+function formatShortcut(key: string, _isMac: boolean) {
+  return key;
 }
 
 /* ── Types ── */
@@ -213,7 +213,7 @@ function InpaintToolButton({
             ? "text-primary"
             : "text-on-surface-variant hover:bg-surface-variant/30 hover:text-on-surface"
         }`}
-        title={`${t("inpaintTool")} (${formatShortcut("P", isMac)})`}
+        title={`${t("inpaintTool")} (${formatShortcut("I", isMac)})`}
       >
         <PaintBrushIcon weight="fill" className="h-4.5 w-4.5" />
       </button>
@@ -312,14 +312,11 @@ export function BottomToolbar({
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-      // Require Option (Mac) or Alt (Win) for tool shortcuts
-      if (!e.altKey) return;
-      // Ignore if Cmd/Ctrl/Shift also held
-      if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+      // Single-letter shortcuts (no modifier) — Photoshop / Figma convention
+      // Skip if any modifier key is held (e.g. Cmd+Z, Ctrl+C, Alt+…)
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if ((e.target as HTMLElement)?.isContentEditable) return;
 
-      // Use e.code instead of e.key — Option/Alt+letter on Mac
-      // produces special characters (e.g. √ for Option+V), but
-      // e.code always returns "KeyV", "KeyH", etc.
       switch (e.code) {
         case "KeyV":
           onToolChangeRef.current("select");
@@ -333,7 +330,7 @@ export function BottomToolbar({
         case "KeyL":
           onToolChangeRef.current("lasso-select");
           break;
-        case "KeyP":
+        case "KeyI":
           onToolChangeRef.current("inpaint");
           break;
         case "KeyT":

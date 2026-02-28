@@ -101,7 +101,7 @@ export function KofiButton({ className = "" }: { className?: string }) {
       <img
         src="https://storage.ko-fi.com/cdn/kofi1.png?v=6"
         alt="Buy Me a Coffee at ko-fi.com"
-        className="h-[30px] border-0"
+        className="h-7 border-0"
       />
     </a>
   );

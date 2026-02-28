@@ -581,6 +581,7 @@ export function LandingPage() {
   const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [scrolled, setScrolled] = useState(false);
   const locale = useLocaleStore((s) => s.locale);
+  const isDev = process.env.NODE_ENV === "development";
 
   /** Right-card banner: default based on locale, clickable to toggle */
   const [rightBannerLang, setRightBannerLang] = useState<'zh' | 'en'>(
@@ -624,29 +625,33 @@ export function LandingPage() {
   const handleLogin = useCallback(() => {
     if (!firstName.trim()) return;
     const trimmedEmail = email.trim();
-    if (!trimmedEmail || !isValidEmail(trimmedEmail)) {
-      setEmailError(t("login.emailInvalid"));
-      return;
-    }
-    setEmailError("");
-    track("user_login", { email: trimmedEmail });
 
-    // Collect contact via Resend (fire-and-forget — never blocks login)
-    fetch("/api/resend/collect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: trimmedEmail,
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        locale,
-        waitlist: notifyUpdates,
-      }),
-    }).catch(() => {});
+    // In production, email is required
+    if (!isDev) {
+      if (!trimmedEmail || !isValidEmail(trimmedEmail)) {
+        setEmailError(t("login.emailInvalid"));
+        return;
+      }
+      setEmailError("");
+      track("user_login", { email: trimmedEmail });
+
+      // Collect contact via Resend (fire-and-forget — never blocks login)
+      fetch("/api/resend/collect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          locale,
+          waitlist: notifyUpdates,
+        }),
+      }).catch(() => {});
+    }
 
     login(firstName.trim(), lastName.trim(), trimmedEmail);
     router.push("/");
-  }, [firstName, lastName, email, login, router, t, locale, notifyUpdates]);
+  }, [firstName, lastName, email, isDev, login, router, t, locale, notifyUpdates]);
 
   /* ── Data ── */
   const features = [
@@ -1815,6 +1820,7 @@ export function LandingPage() {
                       />
                     </div>
                   </div>
+                  {!isDev && (
                   <div>
                     <label className="mb-1.5 block text-[11px] font-medium text-on-surface-variant/60">
                       {t("login.emailLabel")} <span className="text-destructive">*</span>
@@ -1844,9 +1850,11 @@ export function LandingPage() {
                       <p className="mt-1 text-[11px] text-destructive">{emailError}</p>
                     )}
                   </div>
+                  )}
                 </div>
 
                 {/* Notify checkbox */}
+                {!isDev && (
                 <label className="mt-4 flex cursor-pointer items-start gap-2.5">
                   <input
                     type="checkbox"
@@ -1858,6 +1866,7 @@ export function LandingPage() {
                     {t("login.notifyLabel")}
                   </span>
                 </label>
+                )}
 
                 <div className="mt-6 flex items-center justify-end gap-3">
                   <button
@@ -1868,7 +1877,7 @@ export function LandingPage() {
                   </button>
                   <motion.button
                     onClick={handleLogin}
-                    disabled={!firstName.trim() || !email.trim()}
+                    disabled={!firstName.trim() || (!isDev && !email.trim())}
                     className="rounded-xl bg-primary px-6 py-2.5 text-xs font-semibold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}

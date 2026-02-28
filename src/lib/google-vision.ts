@@ -259,14 +259,61 @@ function parseVisionResponse(data: any): OcrResult {
 }
 
 /**
- * Merge OCR blocks whose bounding boxes are very close together.
- * Uses union-find to group blocks where the gap between their rects
- * is smaller than a fraction of the smaller block's size.
+ * Decide whether two OCR blocks should be merged into one text block.
+ *
+ * Three filters keep false merges out:
+ *  1. **Size filter** – rejects furigana / 注音 annotations where one block
+ *     is much smaller than the other (area ratio < 0.2, or one dimension
+ *     is disproportionately thin).
+ *  2. **Proximity filter** – both horizontal and vertical gaps must be small
+ *     relative to the smaller block's dimensions (GAP_RATIO = 0.35).
+ *  3. **Alignment filter** – at least one axis must have ≥ 50 % overlap
+ *     relative to the smaller dimension.  This rules out "stair-step"
+ *     patterns where two separate bubbles sit diagonally.
+ */
+function shouldMergeBlocks(a: OcrTextBlock, b: OcrTextBlock): boolean {
+  // ── 1. Furigana / annotation size filter ──────────────────────────
+  const areaA = a.width * a.height;
+  const areaB = b.width * b.height;
+  const areaRatio = Math.min(areaA, areaB) / Math.max(areaA, areaB);
+  if (areaRatio < 0.2) return false;
+
+  const wRatio = Math.min(a.width, b.width) / Math.max(a.width, b.width);
+  const hRatio = Math.min(a.height, b.height) / Math.max(a.height, b.height);
+  // Vertical furigana: much narrower but similar height
+  if (wRatio < 0.4 && hRatio > 0.4) return false;
+  // Horizontal furigana: much shorter but similar width
+  if (hRatio < 0.4 && wRatio > 0.4) return false;
+
+  // ── 2. Proximity filter ───────────────────────────────────────────
+  const overlapX =
+    Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const overlapY =
+    Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  const gapX = Math.max(0, -overlapX);
+  const gapY = Math.max(0, -overlapY);
+  const smallerW = Math.min(a.width, b.width);
+  const smallerH = Math.min(a.height, b.height);
+
+  const GAP_RATIO = 0.35;
+  if (gapX > smallerW * GAP_RATIO || gapY > smallerH * GAP_RATIO) {
+    return false;
+  }
+
+  // ── 3. Alignment filter (rules out diagonal stair-step) ──────────
+  const alignX = overlapX > 0 ? overlapX / smallerW : 0;
+  const alignY = overlapY > 0 ? overlapY / smallerH : 0;
+  if (alignX < 0.5 && alignY < 0.5) return false;
+
+  return true;
+}
+
+/**
+ * Merge OCR blocks whose bounding boxes belong to the same speech bubble.
+ * Uses union-find with {@link shouldMergeBlocks} as the pairwise predicate.
  */
 function groupNearbyBlocks(blocks: OcrTextBlock[]): OcrTextBlock[] {
   if (blocks.length <= 1) return blocks;
-
-  const GAP_RATIO = 0.35; // max gap as fraction of smaller dimension
 
   // Union-find
   const parent = blocks.map((_, i) => i);
@@ -281,16 +328,7 @@ function groupNearbyBlocks(blocks: OcrTextBlock[]): OcrTextBlock[] {
 
   for (let i = 0; i < blocks.length; i++) {
     for (let j = i + 1; j < blocks.length; j++) {
-      const a = blocks[i], b = blocks[j];
-      // Compute gap between two rects (negative = overlapping)
-      const gapX = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width));
-      const gapY = Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height));
-      // Use Chebyshev-style: both horizontal AND vertical gaps must be small
-      const smallerW = Math.min(a.width, b.width);
-      const smallerH = Math.min(a.height, b.height);
-      const threshX = smallerW * GAP_RATIO;
-      const threshY = smallerH * GAP_RATIO;
-      if (gapX <= threshX && gapY <= threshY) {
+      if (shouldMergeBlocks(blocks[i], blocks[j])) {
         union(i, j);
       }
     }

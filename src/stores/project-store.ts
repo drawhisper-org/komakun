@@ -38,6 +38,12 @@ export interface TextBlock {
   strokeEnabled?: boolean;
   /** Width of the white stroke outline in pixels. Defaults to 4. */
   strokeWidth?: number;
+  /** Content vertical alignment within the box: "top" | "middle" | "bottom". Defaults to "middle". */
+  contentAlign?: "top" | "middle" | "bottom";
+  /** Inner padding in pixels applied uniformly on all sides. Defaults to 0. */
+  padding?: number;
+  /** Whether to auto-shrink fontSize so text fits within the block (minus padding). Defaults to false. */
+  autoFit?: boolean;
   boundingPoly?: { x: number; y: number }[];
 }
 
@@ -90,10 +96,10 @@ interface ProjectActions {
   /** Remove all inpaint strokes from a page. */
   clearInpaintStrokes: (pageId: string) => void;
   setCleanedImage: (pageId: string, base64: string | null) => void;
-  /** Restore a page snapshot (used by undo/redo). Only restores textBlocks & inpaintStrokes. */
+  /** Restore a page snapshot (used by undo/redo). Restores textBlocks, inpaintStrokes, and cleanedImageBase64. */
   restorePageSnapshot: (
     pageId: string,
-    snapshot: { textBlocks: TextBlock[]; inpaintStrokes: InpaintStroke[] }
+    snapshot: { textBlocks: TextBlock[]; inpaintStrokes: InpaintStroke[]; cleanedImageBase64: string | null }
   ) => void;
   toggleStar: () => void;
   clearProject: () => void;
@@ -399,6 +405,7 @@ export const useProjectStore = create<ProjectStore>()(
                   ...page,
                   textBlocks: snapshot.textBlocks,
                   inpaintStrokes: snapshot.inpaintStrokes,
+                  cleanedImageBase64: snapshot.cleanedImageBase64,
                 }
               : page
           ),
