@@ -905,7 +905,7 @@ function TextBlockSection({
   const removeTextBlock = useProjectStore((s) => s.removeTextBlock);
   const updateTextBlock = useProjectStore((s) => s.updateTextBlock);
   const mergeTextBlocks = useProjectStore((s) => s.mergeTextBlocks);
-  const userName = useUserStore((s) => s.userName);
+  const userName = useUserStore((s) => s.firstName);
   const blockRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const pendingEditBlockRef = useRef<string | null>(null);
   // Ordered array: click order determines merge sequence (1st, 2nd, ...)

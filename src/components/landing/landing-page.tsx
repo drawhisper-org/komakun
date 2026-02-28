@@ -574,9 +574,11 @@ export function LandingPage() {
   const { resolvedTheme } = useTheme();
   const login = useUserStore((s) => s.login);
   const [showLogin, setShowLogin] = useState(false);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
+  const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [scrolled, setScrolled] = useState(false);
   const locale = useLocaleStore((s) => s.locale);
 
@@ -620,7 +622,7 @@ export function LandingPage() {
     /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 
   const handleLogin = useCallback(() => {
-    if (!name.trim()) return;
+    if (!firstName.trim()) return;
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !isValidEmail(trimmedEmail)) {
       setEmailError(t("login.emailInvalid"));
@@ -628,9 +630,23 @@ export function LandingPage() {
     }
     setEmailError("");
     track("user_login", { email: trimmedEmail });
-    login(name.trim(), trimmedEmail);
+
+    // Collect contact via Resend (fire-and-forget — never blocks login)
+    fetch("/api/resend/collect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: trimmedEmail,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        locale,
+        waitlist: notifyUpdates,
+      }),
+    }).catch(() => {});
+
+    login(firstName.trim(), lastName.trim(), trimmedEmail);
     router.push("/");
-  }, [name, email, login, router, t]);
+  }, [firstName, lastName, email, login, router, t, locale, notifyUpdates]);
 
   /* ── Data ── */
   const features = [
@@ -1770,19 +1786,34 @@ export function LandingPage() {
                 </p>
 
                 <div className="flex flex-col gap-4">
-                  <div>
-                    <label className="mb-1.5 block text-[11px] font-medium text-on-surface-variant/60">
-                      {t("login.nameLabel")} <span className="text-destructive">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder={t("login.namePlaceholder")}
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                      className="w-full rounded-xl border border-outline-variant/20 bg-surface-variant/10 px-4 py-2.5 text-sm text-on-surface outline-none transition-all placeholder:text-on-surface-variant/25 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                      autoFocus
-                    />
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="mb-1.5 block text-[11px] font-medium text-on-surface-variant/60">
+                        {t("login.firstNameLabel")} <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={t("login.firstNamePlaceholder")}
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                        className="w-full rounded-xl border border-outline-variant/20 bg-surface-variant/10 px-4 py-2.5 text-sm text-on-surface outline-none transition-all placeholder:text-on-surface-variant/25 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="mb-1.5 block text-[11px] font-medium text-on-surface-variant/60">
+                        {t("login.lastNameLabel")}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={t("login.lastNamePlaceholder")}
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                        className="w-full rounded-xl border border-outline-variant/20 bg-surface-variant/10 px-4 py-2.5 text-sm text-on-surface outline-none transition-all placeholder:text-on-surface-variant/25 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="mb-1.5 block text-[11px] font-medium text-on-surface-variant/60">
@@ -1815,6 +1846,19 @@ export function LandingPage() {
                   </div>
                 </div>
 
+                {/* Notify checkbox */}
+                <label className="mt-4 flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={notifyUpdates}
+                    onChange={(e) => setNotifyUpdates(e.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-outline-variant/30 text-primary accent-primary"
+                  />
+                  <span className="text-[11px] leading-relaxed text-on-surface-variant/50">
+                    {t("login.notifyLabel")}
+                  </span>
+                </label>
+
                 <div className="mt-6 flex items-center justify-end gap-3">
                   <button
                     onClick={() => setShowLogin(false)}
@@ -1824,7 +1868,7 @@ export function LandingPage() {
                   </button>
                   <motion.button
                     onClick={handleLogin}
-                    disabled={!name.trim() || !email.trim()}
+                    disabled={!firstName.trim() || !email.trim()}
                     className="rounded-xl bg-primary px-6 py-2.5 text-xs font-semibold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}

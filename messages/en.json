@@ -116,14 +116,17 @@
     "login": {
       "heading": "Welcome",
       "description": "Enter your name and email to get started.",
-      "nameLabel": "Name",
-      "nameRequired": "*",
-      "namePlaceholder": "Your name",
+      "firstNameLabel": "First Name",
+      "firstNameRequired": "*",
+      "firstNamePlaceholder": "First name",
+      "lastNameLabel": "Last Name",
+      "lastNamePlaceholder": "Last name (optional)",
       "emailLabel": "Email",
       "emailPlaceholder": "you@example.com",
       "emailInvalid": "Please enter a valid email address.",
       "cancel": "Cancel",
-      "submit": "Enter KomaKun!"
+      "submit": "Enter KomaKun!",
+      "notifyLabel": "Keep me in the loop — send me occasional updates about new features and improvements."
     }
   },
   "home": {

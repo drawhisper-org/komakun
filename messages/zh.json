@@ -116,14 +116,17 @@
     "login": {
       "heading": "欢迎",
       "description": "输入名字和邮箱即可开始使用。",
-      "nameLabel": "名字",
-      "nameRequired": "*",
-      "namePlaceholder": "你的名字",
+      "firstNameLabel": "名",
+      "firstNameRequired": "*",
+      "firstNamePlaceholder": "名",
+      "lastNameLabel": "姓",
+      "lastNamePlaceholder": "姓（选填）",
       "emailLabel": "邮箱",
       "emailPlaceholder": "you@example.com",
       "emailInvalid": "请输入有效的邮箱地址。",
       "cancel": "取消",
-      "submit": "进入 KomaKun!"
+      "submit": "进入 KomaKun!",
+      "notifyLabel": "接收 KomaKun! 的新功能与更新通知"
     }
   },
   "home": {

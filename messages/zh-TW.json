@@ -116,14 +116,17 @@
     "login": {
       "heading": "歡迎",
       "description": "輸入名字和電子郵件即可開始使用。",
-      "nameLabel": "名字",
-      "nameRequired": "*",
-      "namePlaceholder": "你的名字",
+      "firstNameLabel": "名",
+      "firstNameRequired": "*",
+      "firstNamePlaceholder": "名",
+      "lastNameLabel": "姓",
+      "lastNamePlaceholder": "姓（選填）",
       "emailLabel": "電子郵件",
       "emailPlaceholder": "you@example.com",
       "emailInvalid": "請輸入有效的電子郵件地址。",
       "cancel": "取消",
-      "submit": "進入 KomaKun!"
+      "submit": "進入 KomaKun!",
+      "notifyLabel": "接收 KomaKun! 的新功能與更新通知"
     }
   },
   "home": {

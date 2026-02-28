@@ -116,14 +116,17 @@
     "login": {
       "heading": "ようこそ",
       "description": "名前とメールアドレスを入力して始めましょう。",
-      "nameLabel": "名前",
-      "nameRequired": "*",
-      "namePlaceholder": "あなたの名前",
+      "firstNameLabel": "名",
+      "firstNameRequired": "*",
+      "firstNamePlaceholder": "名",
+      "lastNameLabel": "姓",
+      "lastNamePlaceholder": "姓（任意）",
       "emailLabel": "メールアドレス",
       "emailPlaceholder": "you@example.com",
       "emailInvalid": "有効なメールアドレスを入力してください。",
       "cancel": "キャンセル",
-      "submit": "KomaKun! を始める"
+      "submit": "KomaKun! を始める",
+      "notifyLabel": "新機能やアップデート情報をメールで受け取る"
     }
   },
   "home": {

@@ -16,7 +16,8 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { useUserStore } from "@/stores/user-store";
+import { useUserStore, formatDisplayName } from "@/stores/user-store";
+import { useLocaleStore } from "@/stores/locale-store";
 import { useTranslations } from "next-intl";
 import { AvatarUploadDialog } from "@/components/user/avatar-upload-dialog";
 
@@ -27,19 +28,17 @@ interface UserDropdownProps {
 export function UserDropdown({ onOpenSettings }: UserDropdownProps = {}) {
   const t = useTranslations("user");
   const router = useRouter();
-  const userName = useUserStore((s) => s.userName);
+  const firstName = useUserStore((s) => s.firstName);
+  const lastName = useUserStore((s) => s.lastName);
   const email = useUserStore((s) => s.email);
   const avatarBase64 = useUserStore((s) => s.avatarBase64);
   const logout = useUserStore((s) => s.logout);
+  const locale = useLocaleStore((s) => s.locale);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
 
-  const initials = userName
-    ? userName
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
+  const displayName = formatDisplayName(firstName, lastName, locale);
+  const initials = firstName
+    ? firstName[0].toUpperCase()
     : "U";
 
   const handleLogout = () => {
@@ -57,7 +56,7 @@ export function UserDropdown({ onOpenSettings }: UserDropdownProps = {}) {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={avatarBase64}
-                alt={userName}
+                alt={displayName}
                 className="h-7 w-7 rounded-full object-cover"
               />
             ) : (
@@ -66,7 +65,7 @@ export function UserDropdown({ onOpenSettings }: UserDropdownProps = {}) {
               </div>
             )}
             <span className="max-w-25 truncate text-xs font-medium text-on-surface">
-              {userName}
+              {displayName}
             </span>
             <CaretDownIcon weight="fill" className="h-3 w-3 text-on-surface-variant/50" />
           </button>
@@ -84,7 +83,7 @@ export function UserDropdown({ onOpenSettings }: UserDropdownProps = {}) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={avatarBase64}
-                  alt={userName}
+                  alt={displayName}
                   className="h-16 w-16 rounded-full object-cover ring-2 ring-primary/30"
                 />
               ) : (
@@ -97,7 +96,7 @@ export function UserDropdown({ onOpenSettings }: UserDropdownProps = {}) {
               </div>
             </button>
             <div className="text-center">
-              <p className="text-sm font-semibold text-on-surface">{userName}</p>
+              <p className="text-sm font-semibold text-on-surface">{displayName}</p>
               <p className="text-[11px] text-on-surface-variant/60">{email}</p>
             </div>
           </div>
