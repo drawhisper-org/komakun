@@ -126,23 +126,39 @@ export async function inpaintWithReplicate(
   maskBase64: string,
   apiToken: string
 ): Promise<string> {
+  // Images are already JPEG-compressed at upload time.
+  // Only compress the mask (generated as full-res PNG) to reduce payload.
+  const compressedMask = await compressDataURL(maskBase64, 2048);
+
   const res = await fetch("/api/replicate/lama", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       apiKey: apiToken,
       image: imageBase64,
-      mask: maskBase64,
+      mask: compressedMask,
     }),
   });
 
-  const data = await res.json();
-
-  if (!res.ok || data.error) {
-    throw new Error(data.error || `Server returned ${res.status}`);
+  // Safely parse response — platform may return plain-text errors (e.g. 413)
+  let data: Record<string, unknown>;
+  const text = await res.text();
+  try {
+    data = JSON.parse(text);
+  } catch {
+    if (res.status === 413) {
+      throw new Error(
+        "Image is too large for the server. Try using a smaller image."
+      );
+    }
+    throw new Error(`Server returned ${res.status}: ${text.slice(0, 120)}`);
   }
 
-  return data.output;
+  if (!res.ok || data.error) {
+    throw new Error((data.error as string) || `Server returned ${res.status}`);
+  }
+
+  return data.output as string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -235,4 +251,34 @@ function blobToDataURL(blob: Blob): Promise<string> {
 async function dataURLToBlob(dataURL: string): Promise<Blob> {
   const res = await fetch(dataURL);
   return res.blob();
+}
+
+/**
+ * Downscale a data-URL mask image to reduce payload size.
+ * Caps the longest side to `maxDim` while preserving aspect ratio.
+ * Always outputs PNG to preserve the sharp binary edges of the mask.
+ */
+function compressDataURL(
+  dataURL: string,
+  maxDim: number
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (Math.max(width, height) > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => reject(new Error("Failed to load mask for compression"));
+    img.src = dataURL;
+  });
 }

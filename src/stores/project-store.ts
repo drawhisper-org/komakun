@@ -121,12 +121,40 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function fileToBase64(file: File): Promise<string> {
+/**
+ * Convert an image File to a compressed JPEG data-URL.
+ * - Caps the longest side to `maxDim` to keep IDB storage manageable.
+ * - Re-encodes as JPEG at `quality` (0-1) for significant size savings
+ *   over raw PNG data-URLs.
+ */
+function compressImageFile(
+  file: File,
+  maxDim = 4096,
+  quality = 0.85
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (Math.max(width, height) > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(`Failed to load image: ${file.name}`));
+    };
+    img.src = url;
   });
 }
 
@@ -234,7 +262,7 @@ export const useProjectStore = create<ProjectStore>()(
           newPages.push({
             id: generateId(),
             fileName: file.name,
-            originalImageBase64: await fileToBase64(file),
+            originalImageBase64: await compressImageFile(file),
             cleanedImageBase64: null,
             textBlocks: [],
             inpaintStrokes: [],
