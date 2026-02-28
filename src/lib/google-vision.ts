@@ -244,22 +244,25 @@ function parseVisionResponse(data: any): OcrResult {
 /**
  * Decide whether two OCR blocks should be merged into one text block.
  *
- * Three filters keep false merges out:
+ * Four filters keep false merges out:
  *  1. **Size filter** – rejects furigana / 注音 annotations where one block
- *     is much smaller than the other (area ratio < 0.2, or one dimension
- *     is disproportionately thin).
- *  2. **Proximity filter** – both horizontal and vertical gaps must be small
- *     relative to the smaller block's dimensions (GAP_RATIO = 0.35).
- *  3. **Alignment filter** – at least one axis must have ≥ 50 % overlap
- *     relative to the smaller dimension.  This rules out "stair-step"
- *     patterns where two separate bubbles sit diagonally.
+ *     is much smaller than the other.
+ *  2. **Containment shortcut** – if one block is mostly inside the other,
+ *     always merge (small annotation overlapping a text column).
+ *  3. **Proximity filter** – horizontal and vertical gaps must be small
+ *     relative to the blocks' dimensions.  Uses separate thresholds for
+ *     the "touching" axis vs the "stacking" axis so that vertically-
+ *     stacked separate bubbles (Image 3 pattern) are rejected while
+ *     side-by-side columns in the same bubble (Image 1 pattern) merge.
+ *  4. **Alignment filter** – at least one axis must have ≥ 50 % overlap
+ *     relative to the smaller dimension, ruling out diagonal stair-step.
  */
 function shouldMergeBlocks(a: OcrTextBlock, b: OcrTextBlock): boolean {
   // ── 1. Furigana / annotation size filter ──────────────────────────
   const areaA = a.width * a.height;
   const areaB = b.width * b.height;
   const areaRatio = Math.min(areaA, areaB) / Math.max(areaA, areaB);
-  if (areaRatio < 0.2) return false;
+  if (areaRatio < 0.15) return false;
 
   const wRatio = Math.min(a.width, b.width) / Math.max(a.width, b.width);
   const hRatio = Math.min(a.height, b.height) / Math.max(a.height, b.height);
@@ -268,22 +271,34 @@ function shouldMergeBlocks(a: OcrTextBlock, b: OcrTextBlock): boolean {
   // Horizontal furigana: much shorter but similar width, AND small area
   if (hRatio < 0.35 && wRatio > 0.4 && areaRatio < 0.4) return false;
 
-  // ── 2. Proximity filter ───────────────────────────────────────────
+  // ── 2. Containment shortcut ───────────────────────────────────────
+  // If one block's area is mostly inside the other, merge unconditionally.
   const overlapX =
     Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
   const overlapY =
     Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  if (overlapX > 0 && overlapY > 0) {
+    const overlapArea = overlapX * overlapY;
+    const smallerArea = Math.min(areaA, areaB);
+    if (overlapArea / smallerArea > 0.5) return true;
+  }
+
+  // ── 3. Proximity filter ───────────────────────────────────────────
   const gapX = Math.max(0, -overlapX);
   const gapY = Math.max(0, -overlapY);
   const smallerW = Math.min(a.width, b.width);
   const smallerH = Math.min(a.height, b.height);
 
-  const GAP_RATIO = 0.35;
-  if (gapX > smallerW * GAP_RATIO || gapY > smallerH * GAP_RATIO) {
-    return false;
-  }
+  // Horizontal gap (for side-by-side columns): allow up to 40% of smaller width
+  // Vertical gap (for vertically-stacked blocks): much tighter — only 15% of
+  // smaller height.  Separate speech bubbles stacked vertically have noticeable
+  // whitespace between them, so a tight threshold avoids false merges.
+  const GAP_RATIO_X = 0.40;
+  const GAP_RATIO_Y = 0.15;
+  if (gapX > smallerW * GAP_RATIO_X) return false;
+  if (gapY > smallerH * GAP_RATIO_Y) return false;
 
-  // ── 3. Alignment filter (rules out diagonal stair-step) ──────────
+  // ── 4. Alignment filter (rules out diagonal stair-step) ──────────
   const alignX = overlapX > 0 ? overlapX / smallerW : 0;
   const alignY = overlapY > 0 ? overlapY / smallerH : 0;
   if (alignX < 0.5 && alignY < 0.5) return false;

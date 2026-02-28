@@ -129,7 +129,7 @@ function generateId(): string {
  */
 function compressImageFile(
   file: File,
-  maxDim = 4096,
+  maxDim = 2048,
   quality = 0.85
 ): Promise<string> {
   return new Promise((resolve, reject) => {
