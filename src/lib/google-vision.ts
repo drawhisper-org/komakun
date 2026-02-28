@@ -280,10 +280,10 @@ function shouldMergeBlocks(a: OcrTextBlock, b: OcrTextBlock): boolean {
 
   const wRatio = Math.min(a.width, b.width) / Math.max(a.width, b.width);
   const hRatio = Math.min(a.height, b.height) / Math.max(a.height, b.height);
-  // Vertical furigana: much narrower but similar height
-  if (wRatio < 0.4 && hRatio > 0.4) return false;
-  // Horizontal furigana: much shorter but similar width
-  if (hRatio < 0.4 && wRatio > 0.4) return false;
+  // Vertical furigana: much narrower but similar height, AND small area
+  if (wRatio < 0.35 && hRatio > 0.4 && areaRatio < 0.4) return false;
+  // Horizontal furigana: much shorter but similar width, AND small area
+  if (hRatio < 0.35 && wRatio > 0.4 && areaRatio < 0.4) return false;
 
   // ── 2. Proximity filter ───────────────────────────────────────────
   const overlapX =

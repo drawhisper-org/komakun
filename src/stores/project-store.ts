@@ -327,8 +327,8 @@ export const useProjectStore = create<ProjectStore>()(
               y: minY,
               width: maxX - minX,
               height: maxY - minY,
-              originalText: ordered.map((b) => b.originalText).join(""),
-              translatedText: ordered.map((b) => b.translatedText).filter(Boolean).join(""),
+              originalText: ordered.map((b) => b.originalText).join("\n"),
+              translatedText: ordered.map((b) => b.translatedText).filter(Boolean).join("\n"),
               boundingPoly: undefined,
             };
             const mergeSet = new Set(blockIds);
