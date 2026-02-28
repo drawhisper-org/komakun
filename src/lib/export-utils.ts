@@ -94,7 +94,7 @@ async function renderPageToBlob(page: PageState, watermark?: WatermarkConfig): P
     const wmAspect = wmImg.naturalWidth / wmImg.naturalHeight;
     const wmW = Math.min(maxWmW, wmImg.naturalWidth);
     const wmH = wmW / wmAspect;
-    const margin = w * 0.02;
+    const margin = w * 0.008;
     ctx.save();
     ctx.globalAlpha = watermark.opacity;
     ctx.drawImage(wmImg, w - wmW - margin, h - wmH - margin, wmW, wmH);

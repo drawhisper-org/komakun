@@ -431,9 +431,9 @@ function AIConfigSection() {
   const hasModels = modelOptions.length > 0;
 
   // Available providers (filter "local" to dev-only)
+  const isDev = process.env.NODE_ENV === "development";
   const visibleProviders = AI_PROVIDERS.filter(
-    (p) =>
-      p.value !== "local" || process.env.NODE_ENV === "development"
+    (p) => p.value !== "local" || isDev
   );
 
   const targetLanguageOptions = [
@@ -791,30 +791,32 @@ function AIConfigSection() {
         title={t("imageInpainting")}
         description={t("inpaintDesc")}
       >
-        <SettingRow label={t("inpaintMode")}>
-          <div className="flex gap-1.5 rounded-xl border border-outline-variant/20 p-1">
-            <button
-              onClick={() => setInpaintMode("replicate")}
-              className={`flex flex-1 items-center justify-center rounded-lg py-1.5 text-xs font-medium transition-all ${
-                inpaintMode === "replicate"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-on-surface-variant hover:bg-surface-variant/40"
-              }`}
-            >
-              {t("replicateCloud")}
-            </button>
-            <button
-              onClick={() => setInpaintMode("local")}
-              className={`flex flex-1 items-center justify-center rounded-lg py-1.5 text-xs font-medium transition-all ${
-                inpaintMode === "local"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-on-surface-variant hover:bg-surface-variant/40"
-              }`}
-            >
-              {t("localService")}
-            </button>
-          </div>
-        </SettingRow>
+        {isDev && (
+          <SettingRow label={t("inpaintMode")}>
+            <div className="flex gap-1.5 rounded-xl border border-outline-variant/20 p-1">
+              <button
+                onClick={() => setInpaintMode("replicate")}
+                className={`flex flex-1 items-center justify-center rounded-lg py-1.5 text-xs font-medium transition-all ${
+                  inpaintMode === "replicate"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-on-surface-variant hover:bg-surface-variant/40"
+                }`}
+              >
+                {t("replicateCloud")}
+              </button>
+              <button
+                onClick={() => setInpaintMode("local")}
+                className={`flex flex-1 items-center justify-center rounded-lg py-1.5 text-xs font-medium transition-all ${
+                  inpaintMode === "local"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-on-surface-variant hover:bg-surface-variant/40"
+                }`}
+              >
+                {t("localService")}
+              </button>
+            </div>
+          </SettingRow>
+        )}
 
         {inpaintMode === "replicate" ? (
           <SettingRow

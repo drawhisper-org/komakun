@@ -734,7 +734,7 @@ export function KonvaStage({
             const wmAspect = watermarkImage.width / watermarkImage.height;
             const wmW = Math.min(maxWmW, watermarkImage.width);
             const wmH = wmW / wmAspect;
-            const margin = imgW * 0.02;
+            const margin = imgW * 0.008;
             return (
               <KonvaImage
                 image={watermarkImage}
