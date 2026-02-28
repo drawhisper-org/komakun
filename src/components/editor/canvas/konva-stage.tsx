@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, memo } from "react";
-import { Stage, Layer, Image as KonvaImage, Text as KonvaText, Rect, Line, Transformer, Group } from "react-konva";
+import { Stage, Layer, Image as KonvaImage, Text as KonvaText, Rect, Line, Transformer, Group, Circle } from "react-konva";
 import type Konva from "konva";
 import { useProjectStore, type TextBlock } from "@/stores/project-store";
 import { useLayerVisibilityStore } from "@/stores/layer-visibility-store";
@@ -1009,6 +1009,9 @@ const EM_DASH_CHARS = new Set(["—", "─", "―", "ー"]);
 /** Middle dot / interpunct characters used for manga ellipsis */
 const MIDDLE_DOT_CHARS = new Set(["·", "・", "‧", "⋅", "•"]);
 
+/** Ellipsis character — each one expands to 3 dots in vertical layout */
+const ELLIPSIS_CHARS = new Set(["…", "⋯"]);
+
 /** Wave dash characters that should be rotated 90° in vertical layout */
 const WAVE_DASH_CHARS = new Set(["~", "～", "〜"]);
 
@@ -1051,12 +1054,18 @@ function tokenizeVertical(text: string): VToken[] {
       tokens.push({ type: "dash", count });
       continue;
     }
+    // Check for ellipsis characters (… each = 3 dots)
+    if (ELLIPSIS_CHARS.has(chars[i])) {
+      let dotCount = 0;
+      while (i < chars.length && ELLIPSIS_CHARS.has(chars[i])) { dotCount += 3; i++; }
+      tokens.push({ type: "dots", text: "·", count: dotCount });
+      continue;
+    }
     // Check for consecutive middle dots (···)
     if (MIDDLE_DOT_CHARS.has(chars[i])) {
       let count = 0;
-      const dotChar = chars[i];
-      while (i < chars.length && (MIDDLE_DOT_CHARS.has(chars[i]))) { count++; i++; }
-      tokens.push({ type: "dots", text: dotChar, count });
+      while (i < chars.length && MIDDLE_DOT_CHARS.has(chars[i])) { count++; i++; }
+      tokens.push({ type: "dots", text: "·", count });
       continue;
     }
     // Check for wave dash (~, 〜) — rotated 90° in vertical
@@ -1074,7 +1083,7 @@ function tokenizeVertical(text: string): VToken[] {
 /** Count how many vertical cells a token occupies */
 function tokenCellCount(t: VToken): number {
   if (t.type === "dash") return t.count;
-  if (t.type === "dots") return 1; // all dots compressed into 1 cell
+  if (t.type === "dots") return Math.ceil(t.count / 3); // 3 dots per cell (manga standard)
   return 1;
 }
 
@@ -1252,37 +1261,23 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
                 }
 
                 if (token.type === "dots") {
-                  // Middle dots (···) — render tightly packed within 1 cell
-                  const dotSpacing = charH * 0.35; // tight vertical gap between dots
-                  const totalDotsH = token.count * dotSpacing;
-                  const offsetY = tokenY + (charH - totalDotsH) / 2; // center dots in cell
+                  // Dots (…/···) — render as filled circles stacked vertically
+                  // 3 dots per cell, evenly spaced with small gaps
+                  const totalH = cellsUsed * charH;
+                  const dotRadius = Math.max(1.5, fontSize * 0.055);
+                  const gap = totalH / (token.count + 1); // even distribution
+                  const dotCx = colX + colW / 2;
                   const dotElements: React.ReactNode[] = [];
                   for (let d = 0; d < token.count; d++) {
-                    const dY = offsetY + d * dotSpacing;
-                    const dotProps = {
-                      text: token.text,
-                      fontSize: fontSize * 0.6,
-                      fontFamily,
-                      fontStyle: combinedStyle,
-                      align: "center" as const,
-                      verticalAlign: "middle" as const,
-                      width: colW,
-                      height: dotSpacing,
-                      x: colX,
-                      y: dY,
-                      wrap: "none" as const,
-                      listening: false,
-                    };
+                    const dY = tokenY + gap * (d + 1);
                     if (strokeEnabled) {
                       dotElements.push(
-                        <KonvaText key={`s${d}`} {...dotProps} fill="white" stroke="white" strokeWidth={strokeW * 0.5} lineJoin="round" />,
-                        <KonvaText key={`f${d}`} {...dotProps} fill={fontColor} strokeEnabled={false} />,
-                      );
-                    } else {
-                      dotElements.push(
-                        <KonvaText key={d} {...dotProps} fill={fontColor} />,
+                        <Circle key={`s${d}`} x={dotCx} y={dY} radius={dotRadius + strokeW * 0.3} fill="white" listening={false} />,
                       );
                     }
+                    dotElements.push(
+                      <Circle key={`f${d}`} x={dotCx} y={dY} radius={dotRadius} fill={fontColor} listening={false} />,
+                    );
                   }
                   return <Group key={ti}>{dotElements}</Group>;
                 }

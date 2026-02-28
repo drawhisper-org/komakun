@@ -124,6 +124,7 @@ function normalizeMangaText(text: string): string {
 const EXPORT_COMBINED_PUNCT_RE = /^[!?！？]{2}$/;
 const EXPORT_EM_DASH_CHARS = new Set(["—", "─", "―", "ー"]);
 const EXPORT_MIDDLE_DOT_CHARS = new Set(["·", "・", "‧", "⋅", "•"]);
+const EXPORT_ELLIPSIS_CHARS = new Set(["…", "⋯"]);
 const EXPORT_WAVE_DASH_CHARS = new Set(["~", "～", "〜"]);
 
 type ExVToken =
@@ -152,11 +153,16 @@ function tokenizeVerticalExport(text: string): ExVToken[] {
       tokens.push({ type: "dash", count });
       continue;
     }
+    if (EXPORT_ELLIPSIS_CHARS.has(chars[i])) {
+      let dotCount = 0;
+      while (i < chars.length && EXPORT_ELLIPSIS_CHARS.has(chars[i])) { dotCount += 3; i++; }
+      tokens.push({ type: "dots", text: "·", count: dotCount });
+      continue;
+    }
     if (EXPORT_MIDDLE_DOT_CHARS.has(chars[i])) {
       let count = 0;
-      const dotChar = chars[i];
       while (i < chars.length && EXPORT_MIDDLE_DOT_CHARS.has(chars[i])) { count++; i++; }
-      tokens.push({ type: "dots", text: dotChar, count });
+      tokens.push({ type: "dots", text: "·", count });
       continue;
     }
     if (EXPORT_WAVE_DASH_CHARS.has(chars[i])) {
@@ -172,7 +178,7 @@ function tokenizeVerticalExport(text: string): ExVToken[] {
 
 function tokenCellCountExport(t: ExVToken): number {
   if (t.type === "dash") return t.count;
-  if (t.type === "dots") return 1;
+  if (t.type === "dots") return Math.ceil(t.count / 3); // 3 dots per cell (manga standard)
   return 1;
 }
 
@@ -289,28 +295,23 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
         }
 
         if (token.type === "dots") {
-          // Middle dots with tight spacing within 1 cell
-          const dotFontSize = fontSize * 0.6;
-          ctx.font = `${fontStyleVal} ${fontWeight} ${dotFontSize}px ${fontFamily}`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          const dotSpacing = charH * 0.35;
-          const totalDotsH = token.count * dotSpacing;
-          const offsetY = tokenY + (charH - totalDotsH) / 2;
+          // Dots (…/···) — render as filled circles stacked vertically
+          const totalH = cellsUsed * charH;
+          const dotRadius = Math.max(1.5, fontSize * 0.055);
+          const gap = totalH / (token.count + 1);
           for (let d = 0; d < token.count; d++) {
-            const dY = offsetY + d * dotSpacing + dotSpacing / 2;
+            const dY = tokenY + gap * (d + 1);
             if (strokeEnabled) {
+              ctx.beginPath();
+              ctx.arc(cx, dY, dotRadius + strokeW * 0.3, 0, Math.PI * 2);
               ctx.fillStyle = "white";
-              ctx.strokeStyle = "white";
-              ctx.lineWidth = strokeW * 0.5;
-              ctx.lineJoin = "round";
-              ctx.strokeText(token.text, cx, dY);
-              ctx.fillText(token.text, cx, dY);
+              ctx.fill();
             }
+            ctx.beginPath();
+            ctx.arc(cx, dY, dotRadius, 0, Math.PI * 2);
             ctx.fillStyle = fontColor;
-            ctx.fillText(token.text, cx, dY);
+            ctx.fill();
           }
-          ctx.font = fontStr;
           continue;
         }
 
