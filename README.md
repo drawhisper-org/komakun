@@ -8,6 +8,7 @@ AI-powered OCR · Smart Cleaning · Pro Typesetting — all in your browser.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
+
 [![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/C1C01V0RKD)
 
 </div>
