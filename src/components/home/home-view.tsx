@@ -4,7 +4,6 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  EyeglassesIcon,
   StarIcon,
   SquaresFourIcon,
   ListIcon,
@@ -12,21 +11,10 @@ import {
   CaretDownIcon,
   CheckIcon,
   FileImageIcon,
-  GlobeIcon,
 } from "@phosphor-icons/react";
-import { Nunito } from "next/font/google";
-
-
-const nunito = Nunito({
-  subsets: ["latin"],
-  weight: ["400", "700", "800", "900"],
-  variable: "--font-nunito",
-});
-import { HomeSidebar } from "@/components/home/home-sidebar";
 import { ProjectCard } from "@/components/home/project-card";
 import { useProjectStore } from "@/stores/project-store";
 import { useProjectsListStore } from "@/stores/projects-list-store";
-import { useLocaleStore, type Locale } from "@/stores/locale-store";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -36,61 +24,11 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { useTranslations } from "next-intl";
-import { useTheme } from "next-themes";
 
 type FilterMode = "all" | "starred";
 type SortBy = "last-viewed" | "alphabetical" | "date-created";
 type SortOrder = "newest" | "oldest";
 type ViewStyle = "grid" | "list";
-
-const LOCALE_OPTIONS: { value: Locale; label: string; short: string }[] = [
-  { value: "en", label: "English", short: "EN" },
-  { value: "zh", label: "简体中文", short: "简" },
-  { value: "zh-TW", label: "繁體中文", short: "繁" },
-  { value: "ja", label: "日本語", short: "JP" },
-];
-
-function HomeLanguageSwitcher() {
-  const locale = useLocaleStore((s) => s.locale);
-  const setLocale = useLocaleStore((s) => s.setLocale);
-  const current = LOCALE_OPTIONS.find((o) => o.value === locale) ?? LOCALE_OPTIONS[0];
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-on-surface-variant/60 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant">
-          <GlobeIcon weight="bold" className="h-4 w-4" />
-          <span className="text-[11px] font-medium">{current.short}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-35">
-        {LOCALE_OPTIONS.map(({ value, label }) => (
-          <DropdownMenuItem
-            key={value}
-            onClick={() => setLocale(value)}
-            className="flex items-center justify-between text-xs"
-          >
-            {label}
-            {locale === value && (
-              <CheckIcon weight="bold" className="h-3.5 w-3.5 text-primary" />
-            )}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function GitHubIcon() {
-  const { resolvedTheme } = useTheme();
-  return (
-    <img
-      src={resolvedTheme === "dark" ? "/images/Github-Symbol-Dark.svg" : "/images/Github-Symbol.svg"}
-      alt="GitHub"
-      className="h-4 w-4"
-    />
-  );
-}
 
 export function HomeView() {
   const t = useTranslations("home");
@@ -201,48 +139,8 @@ export function HomeView() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background">
-      {/* Left sidebar */}
-      <HomeSidebar />
-
-      {/* Main content */}
-      <main className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar — logo only */}
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-outline-variant/10 px-6">
-          <div className="flex items-center">
-            <div className="flex items-center gap-2 md:hidden">
-              <EyeglassesIcon weight="bold" className="h-5 w-5 text-primary" />
-              <span className={`text-base font-black tracking-tight text-on-surface ${nunito.className}`}>
-                KomaKun<span className="text-primary">!</span>
-              </span>
-            </div>
-            <h1 className="hidden text-sm font-semibold text-on-surface md:block">
-              {t("recents")}
-            </h1>
-          </div>
-          <div className="flex items-center gap-1">
-            <HomeLanguageSwitcher />
-            <a
-              href="https://github.com/drawhisper-org/komakun"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant"
-            >
-              <GitHubIcon />
-            </a>
-            <a
-              href="https://discord.gg/dazJmnpJCw"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant"
-            >
-              <img src="/images/Discord-Symbol-Blurple.svg" alt="Discord" className="h-4 w-4" />
-            </a>
-          </div>
-        </div>
-
-        {/* Content area */}
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+    <>
+      <div className="px-6 py-6">
           {/* Toolbar: filter tabs (left) + sort dropdown & view toggle (right) */}
           <div className="mb-5 flex items-center justify-between">
             {/* Filter tabs */}
@@ -462,8 +360,7 @@ export function HomeView() {
               ))}
             </div>
           )}
-        </div>
-      </main>
+      </div>
 
       {/* Hidden file input for new project */}
       <input
@@ -474,6 +371,6 @@ export function HomeView() {
         className="hidden"
         onChange={handleFiles}
       />
-    </div>
+    </>
   );
 }

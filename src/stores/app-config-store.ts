@@ -77,7 +77,7 @@ export const useAppConfigStore = create<AppConfigStore>()(
       // State
       theme: {
         mode: "dark",
-        accentColor: "#303F9F",
+        accentColor: "#689F38",
       },
       aiProvider: "google",
       aiModel: "gemini-3-flash-preview",

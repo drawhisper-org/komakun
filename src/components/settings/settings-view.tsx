@@ -1,12 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
-  EyeglassesIcon,
-  ClockCounterClockwiseIcon,
-  GearSixIcon,
   SunIcon,
   MoonIcon,
   DesktopIcon,
@@ -19,11 +15,8 @@ import {
   ImageIcon,
   TrashIcon,
   ScanIcon,
-  GlobeIcon,
   CheckIcon,
-  CaretDownIcon,
 } from "@phosphor-icons/react";
-import { Nunito } from "next/font/google";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,12 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
 import { useAppConfigStore } from "@/stores/app-config-store";
 import { useLocaleStore, type Locale } from "@/stores/locale-store";
 import {
@@ -53,20 +40,6 @@ import {
 import { ACCENT_COLORS } from "@/lib/theme-colors";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { UserDropdown } from "@/components/user/user-dropdown";
-
-const nunito = Nunito({
-  subsets: ["latin"],
-  weight: ["400", "700", "800", "900"],
-  variable: "--font-nunito",
-});
-
-const LOCALE_OPTIONS: { value: Locale; label: string; short: string }[] = [
-  { value: "en", label: "English", short: "EN" },
-  { value: "zh", label: "简体中文", short: "简" },
-  { value: "zh-TW", label: "繁體中文", short: "繁" },
-  { value: "ja", label: "日本語", short: "JP" },
-];
 
 type SettingsTab = "appearance" | "ai" | "watermark";
 
@@ -128,13 +101,7 @@ function SettingRow({ label, description, children, vertical }: {
 
 export function SettingsView() {
   const t = useTranslations("settings");
-  const tHome = useTranslations("home");
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
-
-  const locale = useLocaleStore((s) => s.locale);
-  const setLocale = useLocaleStore((s) => s.setLocale);
-  const current = LOCALE_OPTIONS.find((o) => o.value === locale) ?? LOCALE_OPTIONS[0];
 
   const tabs: { value: SettingsTab; icon: React.ElementType; label: string }[] = [
     { value: "appearance", icon: PaletteIcon, label: t("appearance") },
@@ -143,102 +110,31 @@ export function SettingsView() {
   ];
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background">
-      {/* Left sidebar — mirrors HomeSidebar */}
-      <aside className="flex h-full w-60 shrink-0 flex-col border-r border-outline-variant/20 bg-surface">
-        <div className="flex items-center gap-2 px-4 py-5">
-          <EyeglassesIcon weight="bold" className="h-5 w-5 text-primary" />
-          <span className={`text-lg font-black tracking-tight text-on-surface ${nunito.className}`}>
-            KomaKun<span className="text-primary">!</span>
-          </span>
-        </div>
-
-        <div className="mx-3 mb-4">
-          <UserDropdown />
-        </div>
-
-        <nav className="flex flex-col gap-0.5 px-3">
+    <div className="px-8 py-6">
+      {/* Tab row */}
+      <div className="mb-6 flex items-center gap-1">
+        {tabs.map(({ value, icon: Icon, label }) => (
           <button
-            onClick={() => router.push("/")}
-            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-on-surface-variant/60 transition-colors hover:bg-surface-variant/20"
+            key={value}
+            onClick={() => setActiveTab(value)}
+            className={`flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === value
+                ? "bg-surface-variant/40 text-on-surface"
+                : "text-on-surface-variant/50 hover:text-on-surface"
+            }`}
           >
-            <ClockCounterClockwiseIcon weight="fill" className="h-4.5 w-4.5" />
-            {tHome("recents")}
+            <Icon weight={activeTab === value ? "fill" : "regular"} className="h-3.5 w-3.5" />
+            {label}
           </button>
-          <button
-            className="flex items-center gap-2.5 rounded-lg bg-primary-container/30 px-3 py-2 text-sm font-medium text-on-surface transition-colors"
-          >
-            <GearSixIcon weight="fill" className="h-4.5 w-4.5 text-primary" />
-            {t("title")}
-          </button>
-        </nav>
+        ))}
+      </div>
 
-        <div className="flex-1" />
-
-        <div className="px-4 py-3 text-[10px] text-on-surface-variant/30">
-          {tHome("openSource")}
-        </div>
-      </aside>
-
-      {/* Main content */}
-      <main className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar */}
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-outline-variant/10 px-8">
-          <h1 className="text-sm font-semibold text-on-surface">{t("title")}</h1>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-on-surface-variant/60 transition-colors hover:bg-surface-variant/20 hover:text-on-surface-variant">
-                <GlobeIcon weight="bold" className="h-4 w-4" />
-                <span className="text-[11px] font-medium">{current.short}</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-35">
-              {LOCALE_OPTIONS.map(({ value, label }) => (
-                <DropdownMenuItem
-                  key={value}
-                  onClick={() => setLocale(value)}
-                  className="flex items-center justify-between text-xs"
-                >
-                  {label}
-                  {locale === value && (
-                    <CheckIcon weight="bold" className="h-3.5 w-3.5 text-primary" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        {/* Content area */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-8 py-6">
-            {/* Tab row */}
-            <div className="mb-6 flex items-center gap-1">
-              {tabs.map(({ value, icon: Icon, label }) => (
-                <button
-                  key={value}
-                  onClick={() => setActiveTab(value)}
-                  className={`flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-medium transition-colors ${
-                    activeTab === value
-                      ? "bg-surface-variant/40 text-on-surface"
-                      : "text-on-surface-variant/50 hover:text-on-surface"
-                  }`}
-                >
-                  <Icon weight={activeTab === value ? "fill" : "regular"} className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Settings content — left-aligned, wide */}
-            <div className="max-w-2xl space-y-5">
-              {activeTab === "appearance" && <AppearanceSection />}
-              {activeTab === "ai" && <AIConfigSection />}
-              {activeTab === "watermark" && <WatermarkSection />}
-            </div>
-          </div>
-        </div>
-      </main>
+      {/* Settings content — left-aligned, wide */}
+      <div className="max-w-2xl space-y-5">
+        {activeTab === "appearance" && <AppearanceSection />}
+        {activeTab === "ai" && <AIConfigSection />}
+        {activeTab === "watermark" && <WatermarkSection />}
+      </div>
     </div>
   );
 }

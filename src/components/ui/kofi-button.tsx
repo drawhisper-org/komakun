@@ -99,8 +99,8 @@ export function KofiButton({ className = "" }: { className?: string }) {
       className={`inline-flex transition-opacity hover:opacity-85 ${className}`}
     >
       <img
-        src="https://storage.ko-fi.com/cdn/kofi1.png?v=6"
-        alt="Buy Me a Coffee at ko-fi.com"
+        src="/images/kofi.webp"
+        alt="Buy Me a Coffee"
         className="h-7 border-0"
       />
     </a>
