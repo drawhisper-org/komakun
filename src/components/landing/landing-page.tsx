@@ -13,6 +13,7 @@ import {
 } from "framer-motion";
 
 import { KofiButton } from "@/components/ui/kofi-button";
+import YouTube from "react-youtube";
 import {
   TranslateIcon,
   MagicWandIcon,
@@ -580,6 +581,7 @@ export function LandingPage() {
   const [emailError, setEmailError] = useState("");
   const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [scrolled, setScrolled] = useState(false);
+  const [videoPlaying, setVideoPlaying] = useState(false);
   const locale = useLocaleStore((s) => s.locale);
   const isDev = process.env.NODE_ENV === "development";
 
@@ -1099,8 +1101,28 @@ export function LandingPage() {
               </div>
             </div>
 
-            {/* Editor mockup */}
+            {/* Editor mockup / YouTube player */}
             <div className="flex aspect-[16/9] bg-background">
+              {videoPlaying ? (
+                /* ── YouTube Player ── */
+                <div className="relative h-full w-full">
+                  <YouTube
+                    videoId="cDhFn5X7IeY"
+                    className="absolute inset-0 h-full w-full"
+                    iframeClassName="h-full w-full"
+                    opts={{
+                      width: "100%",
+                      height: "100%",
+                      playerVars: {
+                        autoplay: 1,
+                        modestbranding: 1,
+                        rel: 0,
+                      },
+                    }}
+                  />
+                </div>
+              ) : (
+              <>
               {/* Left sidebar — Pages */}
               <div className="hidden w-48 shrink-0 border-r border-outline-variant/10 bg-surface p-3 md:block">
                 <div className="mb-3 flex items-center gap-2">
@@ -1222,6 +1244,7 @@ export function LandingPage() {
                       className="relative flex h-16 w-16 cursor-pointer items-center justify-center rounded-full bg-primary/90 shadow-2xl shadow-primary/30 backdrop-blur-sm md:h-20 md:w-20"
                       whileHover={{ scale: 1.1 }}
                       whileTap={{ scale: 0.95 }}
+                      onClick={() => setVideoPlaying(true)}
                     >
                       <PlayIcon
                         weight="fill"
@@ -1263,6 +1286,8 @@ export function LandingPage() {
                   <div className="h-1.5 w-3/5 rounded bg-on-surface-variant/6" />
                 </div>
               </div>
+              </>
+              )}
             </div>
           </motion.div>
         </div>
