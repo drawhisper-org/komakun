@@ -14,6 +14,8 @@ AI-powered OCR · Smart Cleaning · Pro Typesetting — all in your browser.
 </div>
 
 ---
+## App Showcase
+[komakun-showcase](https://github.com/user-attachments/assets/a356a759-11e1-4b9c-a5e2-1eb449ff2c76)
 
 ## 🇬🇧 English
 
