@@ -1101,25 +1101,37 @@ export function LandingPage() {
               </div>
             </div>
 
-            {/* Editor mockup / YouTube player */}
+            {/* Editor mockup / Video player */}
             <div className="flex aspect-[16/9] bg-background">
               {videoPlaying ? (
-                /* ── YouTube Player ── */
+                /* ── Video Player (Bilibili for zh locales, YouTube for others) ── */
                 <div className="relative h-full w-full">
-                  <YouTube
-                    videoId="cDhFn5X7IeY"
-                    className="absolute inset-0 h-full w-full"
-                    iframeClassName="h-full w-full"
-                    opts={{
-                      width: "100%",
-                      height: "100%",
-                      playerVars: {
-                        autoplay: 1,
-                        modestbranding: 1,
-                        rel: 0,
-                      },
-                    }}
-                  />
+                  {locale === "zh" || locale === "zh-TW" ? (
+                    <iframe
+                      src="//player.bilibili.com/player.html?bvid=BV1pgPMzpEzp&autoplay=1&danmaku=0&high_quality=1"
+                      className="absolute inset-0 h-full w-full"
+                      allowFullScreen
+                      scrolling="no"
+                      allow="autoplay"
+                      sandbox="allow-scripts allow-same-origin allow-popups"
+                      style={{ border: "none" }}
+                    />
+                  ) : (
+                    <YouTube
+                      videoId="cDhFn5X7IeY"
+                      className="absolute inset-0 h-full w-full"
+                      iframeClassName="h-full w-full"
+                      opts={{
+                        width: "100%",
+                        height: "100%",
+                        playerVars: {
+                          autoplay: 1,
+                          modestbranding: 1,
+                          rel: 0,
+                        },
+                      }}
+                    />
+                  )}
                 </div>
               ) : (
               <>
