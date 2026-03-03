@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
-import { Stage, Layer, Image as KonvaImage, Text as KonvaText, Rect, Line, Transformer, Group, Circle } from "react-konva";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { Stage, Layer, Image as KonvaImage, Rect, Line } from "react-konva";
 import type Konva from "konva";
 import { useProjectStore, type TextBlock } from "@/stores/project-store";
 import { useLayerVisibilityStore } from "@/stores/layer-visibility-store";
@@ -9,10 +9,13 @@ import { useOcrUiStore } from "@/stores/ocr-store";
 import { useEditorSelectionStore } from "@/stores/editor-selection-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useAppConfigStore } from "@/stores/app-config-store";
+import { useImage, useMarchingAnts, useFontGeneration } from "./utils/canvas-hooks";
+import { TextBlockNode } from "./text-block-node";
+import { ResizableBlockRect, MultiSelectGroup } from "./block-rect";
 
-/* ── Shared types ── */
-
+/* ── Re-exports consumed by other editor components ── */
 export type ActiveTool = "select" | "hand" | "rect-select" | "lasso-select" | "inpaint" | "text";
+export { computeAutoFitFontSize } from "./utils/text-overflow";
 
 interface CanvasViewport {
   x: number;
@@ -31,53 +34,16 @@ interface KonvaStageProps {
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 5.0;
 
-/* ── Image loading hook ── */
-function useImage(src: string | null): HTMLImageElement | null {
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
-  useEffect(() => {
-    if (!src) { setImage(null); return; }
-    const img = new window.Image();
-    img.onload = () => setImage(img);
-    img.onerror = () => setImage(null);
-    img.src = src;
-    return () => { img.onload = null; img.onerror = null; };
-  }, [src]);
-  return image;
+/** Check if the keyboard event target is an interactive input element. */
+function isInputFocused(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement;
+  const tag = el?.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!el?.isContentEditable;
 }
 
-/* ── Marching ants animation hook ── */
-function useMarchingAnts(active: boolean) {
-  const [dashOffset, setDashOffset] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    let raf: number;
-    let last = 0;
-    const tick = (time: number) => {
-      if (time - last > 50) {
-        setDashOffset((o) => (o + 1) % 200);
-        last = time;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [active]);
-  return dashOffset;
-}
-
-/* ── Font-ready hook ── */
-/** Bumps a counter each time a new font face finishes loading, causing Konva text nodes to re-render. */
-function useFontGeneration() {
-  const [gen, setGen] = useState(0);
-  useEffect(() => {
-    const bump = () => setGen((g) => g + 1);
-    // Re-render once all initially-queued fonts are ready
-    document.fonts.ready.then(bump);
-    // Re-render each time a new font loads (user picks a Google Font)
-    document.fonts.addEventListener("loadingdone", bump);
-    return () => document.fonts.removeEventListener("loadingdone", bump);
-  }, []);
-  return gen;
+/** Generate a unique ID with the given prefix (e.g. "text", "stroke"). */
+function generateId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 /* ── Main component ── */
@@ -93,6 +59,10 @@ export function KonvaStage({
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 1, height: 1 });
   const fontGeneration = useFontGeneration();
+
+  // Stable ref for viewport — avoids re-creating callbacks on every viewport change
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
 
   // Store
   const activePage = useProjectStore(
@@ -165,6 +135,9 @@ export function KonvaStage({
   // Ref for arrow-key undo debounce (single snapshot per key-hold)
   const arrowSnapRef = useRef(false);
 
+  // Internal clipboard for copy/paste text blocks
+  const clipboardRef = useRef<TextBlock[]>([]);
+
   // Container resize
   useEffect(() => {
     const el = containerRef.current;
@@ -179,94 +152,132 @@ export function KonvaStage({
     return () => ro.disconnect();
   }, []);
 
-  /* ── Backspace to clear selection / delete selected block or stroke ── */
+  /* ── Keyboard shortcuts (delete, nudge, copy/paste) ── */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Backspace" && e.key !== "Delete") return;
-      // Don't act if user is typing in an input
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (isInputFocused(e)) return;
 
-      e.preventDefault();
+      // ── Delete / Backspace ──
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        const pageId = activePage?.id;
+        const { selectedBlockId: blkId, selectedBlockIds: blkIds, selectedStrokeId: strId } =
+          useEditorSelectionStore.getState();
 
-      const pageId = activePage?.id;
-      const { selectedBlockId: blkId, selectedBlockIds: blkIds, selectedStrokeId: strId } =
-        useEditorSelectionStore.getState();
-
-      // Priority: multi-selected blocks → single block → selected stroke → pending selection
-      if (blkIds.size > 1 && pageId) {
-        pushCurrentSnapshot();
-        for (const id of blkIds) removeTextBlock(pageId, id);
-        clearAllSelections();
+        if (blkIds.size > 1 && pageId) {
+          pushCurrentSnapshot();
+          for (const id of blkIds) removeTextBlock(pageId, id);
+          clearAllSelections();
+          return;
+        }
+        if (blkId && pageId) {
+          pushCurrentSnapshot();
+          removeTextBlock(pageId, blkId);
+          clearAllSelections();
+          return;
+        }
+        if (strId && pageId) {
+          pushCurrentSnapshot();
+          removeInpaintStroke(pageId, strId);
+          clearAllSelections();
+          return;
+        }
+        if (pendingSelection) clearSelection();
         return;
       }
-      if (blkId && pageId) {
-        pushCurrentSnapshot();
-        removeTextBlock(pageId, blkId);
-        clearAllSelections();
+
+      // ── Arrow keys to nudge selected block(s) ──
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        const pageId = activePage?.id;
+        const { selectedBlockId: blkId, selectedBlockIds: blkIds } = useEditorSelectionStore.getState();
+        const ids = blkIds.size > 0 ? [...blkIds] : blkId ? [blkId] : [];
+        if (ids.length === 0 || !pageId) return;
+
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const delta = { x: 0, y: 0 };
+        if (e.key === "ArrowUp") delta.y = -step;
+        if (e.key === "ArrowDown") delta.y = step;
+        if (e.key === "ArrowLeft") delta.x = -step;
+        if (e.key === "ArrowRight") delta.x = step;
+
+        const page = useProjectStore.getState().pages.find((p) => p.id === pageId);
+        if (!page) return;
+
+        if (!arrowSnapRef.current) {
+          pushCurrentSnapshot();
+          arrowSnapRef.current = true;
+        }
+        for (const id of ids) {
+          const block = page.textBlocks.find((b) => b.id === id);
+          if (block) updateTextBlock(pageId, id, { x: block.x + delta.x, y: block.y + delta.y });
+        }
         return;
       }
-      if (strId && pageId) {
-        pushCurrentSnapshot();
-        removeInpaintStroke(pageId, strId);
-        clearAllSelections();
-        return;
-      }
-      if (pendingSelection) {
-        clearSelection();
+
+      // ── Cmd/Ctrl+C / Cmd/Ctrl+V ──
+      if ((e.metaKey || e.ctrlKey) && (e.key === "c" || e.key === "v")) {
+        const pageId = activePage?.id;
+        if (!pageId) return;
+
+        if (e.key === "c") {
+          const { selectedBlockId: blkId, selectedBlockIds: blkIds } =
+            useEditorSelectionStore.getState();
+          const page = useProjectStore.getState().pages.find((p) => p.id === pageId);
+          if (!page) return;
+
+          const ids = blkIds.size > 0 ? [...blkIds] : blkId ? [blkId] : [];
+          if (ids.length === 0) return;
+
+          const blocks = ids
+            .map((id) => page.textBlocks.find((b) => b.id === id))
+            .filter(Boolean) as TextBlock[];
+          if (blocks.length > 0) {
+            clipboardRef.current = blocks.map((b) => ({ ...b }));
+          }
+          return;
+        }
+
+        if (e.key === "v") {
+          if (clipboardRef.current.length === 0) return;
+          e.preventDefault();
+
+          pushCurrentSnapshot();
+          const OFFSET = 20;
+          const newBlocks: TextBlock[] = clipboardRef.current.map((b) => ({
+            ...b,
+            id: generateId("text"),
+            source: "manual" as const,
+            x: b.x + OFFSET,
+            y: b.y + OFFSET,
+          }));
+
+          addTextBlocks(pageId, newBlocks);
+
+          if (newBlocks.length === 1) {
+            selectBlock(newBlocks[0].id);
+          } else {
+            selectBlocks(newBlocks.map((b) => b.id));
+          }
+
+          clipboardRef.current = newBlocks.map((b) => ({ ...b }));
+        }
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activePage?.id, pendingSelection, clearSelection, removeTextBlock, removeInpaintStroke, clearAllSelections, pushCurrentSnapshot]);
 
-  /* ── Arrow keys to nudge selected text block ── */
-  useEffect(() => {
-    const handleArrowKey = (e: KeyboardEvent) => {
-      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-
-      const pageId = activePage?.id;
-      const { selectedBlockId: blkId, selectedBlockIds: blkIds } = useEditorSelectionStore.getState();
-      const ids = blkIds.size > 0 ? [...blkIds] : blkId ? [blkId] : [];
-      if (ids.length === 0 || !pageId) return;
-
-      e.preventDefault();
-      const step = e.shiftKey ? 10 : 1;
-      const delta = { x: 0, y: 0 };
-      if (e.key === "ArrowUp") delta.y = -step;
-      if (e.key === "ArrowDown") delta.y = step;
-      if (e.key === "ArrowLeft") delta.x = -step;
-      if (e.key === "ArrowRight") delta.x = step;
-
-      const page = useProjectStore.getState().pages.find((p) => p.id === pageId);
-      if (!page) return;
-
-      // Push undo snapshot only on first arrow press (debounce via ref)
-      if (!arrowSnapRef.current) {
-        pushCurrentSnapshot();
-        arrowSnapRef.current = true;
-      }
-      for (const id of ids) {
-        const block = page.textBlocks.find((b) => b.id === id);
-        if (block) updateTextBlock(pageId, id, { x: block.x + delta.x, y: block.y + delta.y });
-      }
-    };
-
-    const handleArrowKeyUp = (e: KeyboardEvent) => {
+    const handleKeyUp = (e: KeyboardEvent) => {
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
         arrowSnapRef.current = false;
       }
     };
 
-    window.addEventListener("keydown", handleArrowKey);
-    window.addEventListener("keyup", handleArrowKeyUp);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
     return () => {
-      window.removeEventListener("keydown", handleArrowKey);
-      window.removeEventListener("keyup", handleArrowKeyUp);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [activePage?.id, updateTextBlock, pushCurrentSnapshot]);
+  }, [activePage?.id, pendingSelection, clearSelection, removeTextBlock, removeInpaintStroke, clearAllSelections, pushCurrentSnapshot, updateTextBlock, addTextBlocks, selectBlock, selectBlocks]);
 
   /* ── Fit to screen ── */
 
@@ -331,15 +342,15 @@ export function KonvaStage({
       if (!pointer) return;
 
       const scaleBy = 1.08;
-      const oldScale = viewport.scale;
+      const { scale: oldScale, x: vx, y: vy } = viewportRef.current;
       const newScale =
         e.evt.deltaY < 0
           ? Math.min(oldScale * scaleBy, MAX_SCALE)
           : Math.max(oldScale / scaleBy, MIN_SCALE);
 
       const mousePointTo = {
-        x: (pointer.x - viewport.x) / oldScale,
-        y: (pointer.y - viewport.y) / oldScale,
+        x: (pointer.x - vx) / oldScale,
+        y: (pointer.y - vy) / oldScale,
       };
       onViewportChange({
         scale: newScale,
@@ -347,7 +358,7 @@ export function KonvaStage({
         y: pointer.y - mousePointTo.y * newScale,
       });
     },
-    [viewport, onViewportChange]
+    [onViewportChange]
   );
 
   /* ── Pan state ── */
@@ -373,18 +384,15 @@ export function KonvaStage({
 
   /* ── Read theme colors from CSS variables ── */
   const [primaryColor, setPrimaryColor] = useState("#6750A4");
-  const [secondaryColor, setSecondaryColor] = useState("#5B5D72");
   const [tertiaryColor, setTertiaryColor] = useState("#775368");
   const [errorColor, setErrorColor] = useState("#BA1A1A");
   useEffect(() => {
     const readColors = () => {
       const cs = getComputedStyle(document.documentElement);
       const primary = cs.getPropertyValue("--primary").trim();
-      const secondary = cs.getPropertyValue("--secondary").trim();
       const tertiary = cs.getPropertyValue("--tertiary").trim();
       const destructive = cs.getPropertyValue("--destructive").trim();
       if (primary) setPrimaryColor(primary);
-      if (secondary) setSecondaryColor(secondary);
       if (tertiary) setTertiaryColor(tertiary);
       if (destructive) setErrorColor(destructive);
     };
@@ -404,11 +412,12 @@ export function KonvaStage({
     if (!stage) return null;
     const pointer = stage.getPointerPosition();
     if (!pointer) return null;
+    const { x: vx, y: vy, scale } = viewportRef.current;
     return {
-      x: (pointer.x - viewport.x) / viewport.scale,
-      y: (pointer.y - viewport.y) / viewport.scale,
+      x: (pointer.x - vx) / scale,
+      y: (pointer.y - vy) / scale,
     };
-  }, [viewport]);
+  }, []);
 
   /* ── Mouse handlers ── */
 
@@ -417,14 +426,14 @@ export function KonvaStage({
       // Middle-mouse always pans
       if (e.evt.button === 1) {
         isPanning.current = true;
-        panStart.current = { x: e.evt.clientX - viewport.x, y: e.evt.clientY - viewport.y };
+        panStart.current = { x: e.evt.clientX - viewportRef.current.x, y: e.evt.clientY - viewportRef.current.y };
         e.evt.preventDefault();
         return;
       }
 
       if (activeTool === "hand") {
         isPanning.current = true;
-        panStart.current = { x: e.evt.clientX - viewport.x, y: e.evt.clientY - viewport.y };
+        panStart.current = { x: e.evt.clientX - viewportRef.current.x, y: e.evt.clientY - viewportRef.current.y };
         e.evt.preventDefault();
         return;
       }
@@ -490,14 +499,14 @@ export function KonvaStage({
         e.evt.preventDefault();
       }
     },
-    [activeTool, viewport.x, viewport.y, toImageSpace, clearSelection, clearAllSelections, activePage?.id, addTextBlocks, selectBlock]
+    [activeTool, toImageSpace, clearSelection, clearAllSelections]
   );
 
   const handleMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (isPanning.current) {
         onViewportChange({
-          ...viewport,
+          ...viewportRef.current,
           x: e.evt.clientX - panStart.current.x,
           y: e.evt.clientY - panStart.current.y,
         });
@@ -526,7 +535,7 @@ export function KonvaStage({
         if (pt) setDragSelEnd(pt);
       }
     },
-    [viewport, onViewportChange, isSelecting, isDragSelecting, isDrawing, activeTool, toImageSpace]
+    [onViewportChange, isSelecting, isDragSelecting, isDrawing, activeTool, toImageSpace]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -541,7 +550,7 @@ export function KonvaStage({
       if (pageId) {
         pushCurrentSnapshot();
         addInpaintStroke(pageId, {
-          id: `stroke-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          id: generateId("stroke"),
           points: [...drawingPoints],
           brushSize,
         });
@@ -565,7 +574,7 @@ export function KonvaStage({
         const h = Math.abs(selEnd.y - selStart.y);
         if (w > 10 && h > 10 && activePage?.id) {
           pushCurrentSnapshot();
-          const newId = `text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const newId = generateId("text");
           addTextBlocks(activePage.id, [{
             id: newId,
             type: "speech",
@@ -769,7 +778,6 @@ export function KonvaStage({
                 listening={canInteract}
                 stageRef={stageRef}
                 primaryColor={primaryColor}
-                secondaryColor={secondaryColor}
                 tertiaryColor={tertiaryColor}
                 errorColor={errorColor}
                 blockNodesRef={blockNodesRef}
@@ -993,1083 +1001,3 @@ export function KonvaStage({
     </div>
   );
 }
-
-/* ── Multi-select group bounding box with proportional resize ── */
-function MultiSelectGroup({
-  blocks,
-  strokeW,
-  scale,
-  tertiaryColor,
-  stageRef,
-  onBeforeChange,
-  bulkResizeRef,
-  bulkChangeRef,
-}: {
-  blocks: TextBlock[];
-  strokeW: number;
-  scale: number;
-  tertiaryColor: string;
-  stageRef: React.RefObject<Konva.Stage | null>;
-  onBeforeChange: () => void;
-  bulkResizeRef: React.MutableRefObject<(changes: { id: string; x: number; y: number; width: number; height: number }[]) => void>;
-  bulkChangeRef: React.MutableRefObject<(changes: { id: string; x: number; y: number }[]) => void>;
-}) {
-  const groupRectRef = useRef<Konva.Rect>(null);
-  const groupTrRef = useRef<Konva.Transformer>(null);
-
-  // Snapshot of child rects at the start of a transform, relative to the group box
-  const transformCtxRef = useRef<{
-    groupX: number;
-    groupY: number;
-    groupW: number;
-    groupH: number;
-    children: { id: string; rx: number; ry: number; rw: number; rh: number }[];
-  } | null>(null);
-
-  // Compute bounding box of all selected blocks
-  const minX = Math.min(...blocks.map((b) => b.x));
-  const minY = Math.min(...blocks.map((b) => b.y));
-  const maxX = Math.max(...blocks.map((b) => b.x + b.width));
-  const maxY = Math.max(...blocks.map((b) => b.y + b.height));
-  const groupW = maxX - minX;
-  const groupH = maxY - minY;
-
-  // Attach transformer to the group rect
-  useEffect(() => {
-    if (groupTrRef.current && groupRectRef.current) {
-      groupTrRef.current.nodes([groupRectRef.current]);
-      groupTrRef.current.getLayer()?.batchDraw();
-    }
-  }, [blocks.length, minX, minY, groupW, groupH]);
-
-  const handleTransformStart = () => {
-    transformCtxRef.current = {
-      groupX: minX,
-      groupY: minY,
-      groupW,
-      groupH,
-      children: blocks.map((b) => ({
-        id: b.id,
-        rx: (b.x - minX) / groupW,
-        ry: (b.y - minY) / groupH,
-        rw: b.width / groupW,
-        rh: b.height / groupH,
-      })),
-    };
-  };
-
-  const handleTransformEnd = () => {
-    const node = groupRectRef.current;
-    const ctx = transformCtxRef.current;
-    if (!node || !ctx) return;
-
-    onBeforeChange();
-    const sx = node.scaleX();
-    const sy = node.scaleY();
-    const newX = node.x();
-    const newY = node.y();
-    const newW = Math.max(20, groupW * sx);
-    const newH = Math.max(14, groupH * sy);
-
-    // Reset scale on the proxy rect
-    node.scaleX(1);
-    node.scaleY(1);
-
-    // Proportionally update each child block
-    const changes = ctx.children.map((c) => ({
-      id: c.id,
-      x: newX + c.rx * newW,
-      y: newY + c.ry * newH,
-      width: Math.max(10, c.rw * newW),
-      height: Math.max(10, c.rh * newH),
-    }));
-    bulkResizeRef.current(changes);
-    transformCtxRef.current = null;
-  };
-
-  // Drag: snapshot at start, apply delta at end
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  const handleDragStart = () => {
-    dragStartRef.current = { x: minX, y: minY };
-  };
-
-  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const start = dragStartRef.current;
-    if (!start) return;
-    onBeforeChange();
-    const dx = e.target.x() - start.x;
-    const dy = e.target.y() - start.y;
-    const changes = blocks.map((b) => ({
-      id: b.id,
-      x: b.x + dx,
-      y: b.y + dy,
-    }));
-    bulkChangeRef.current(changes);
-    dragStartRef.current = null;
-  };
-
-  const accent = tertiaryColor;
-  const anchorSz = 8;
-  const anchorCorner = 4;
-
-  return (
-    <>
-      <Rect
-        ref={groupRectRef}
-        x={minX}
-        y={minY}
-        width={groupW}
-        height={groupH}
-        stroke={accent}
-        strokeWidth={strokeW * 0.5}
-        dash={[3 / scale, 2 / scale]}
-        fill="transparent"
-        draggable
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onTransformStart={handleTransformStart}
-        onTransformEnd={handleTransformEnd}
-        onMouseEnter={() => {
-          const container = stageRef.current?.container();
-          if (container) container.style.cursor = "move";
-        }}
-        onMouseLeave={() => {
-          const container = stageRef.current?.container();
-          if (container) container.style.cursor = "";
-        }}
-      />
-      <Transformer
-        ref={groupTrRef}
-        rotateEnabled={false}
-        keepRatio={false}
-        enabledAnchors={[
-          "top-left", "top-right", "bottom-left", "bottom-right",
-        ]}
-        anchorSize={anchorSz}
-        anchorCornerRadius={anchorCorner}
-        anchorStroke={accent}
-        anchorStrokeWidth={1.5}
-        anchorFill="#fff"
-        borderStroke={accent}
-        borderStrokeWidth={0}
-        borderDash={[0]}
-        boundBoxFunc={(_oldBox, newBox) => {
-          if (Math.abs(newBox.width) < 20 || Math.abs(newBox.height) < 14) {
-            return _oldBox;
-          }
-          return newBox;
-        }}
-      />
-    </>
-  );
-}
-
-/* ── Resizable Block Rect — unified for OCR & manual blocks ── */
-const ResizableBlockRect = memo(function ResizableBlockRect({
-  block,
-  isSelected,
-  isMultiSelected,
-  strokeW,
-  scale,
-  listening,
-  stageRef,
-  primaryColor,
-  secondaryColor,
-  tertiaryColor,
-  errorColor,
-  blockNodesRef,
-  bulkChangeRef,
-  onSelect,
-  onBeforeChange,
-  onChange,
-}: {
-  block: TextBlock;
-  isSelected: boolean;
-  isMultiSelected: boolean;
-  strokeW: number;
-  scale: number;
-  listening: boolean;
-  stageRef: React.RefObject<Konva.Stage | null>;
-  primaryColor: string;
-  secondaryColor: string;
-  tertiaryColor: string;
-  errorColor: string;
-  blockNodesRef: React.MutableRefObject<Map<string, Konva.Rect>>;
-  bulkChangeRef: React.MutableRefObject<(changes: { id: string; x: number; y: number }[]) => void>;
-  onSelect: (e?: Konva.KonvaEventObject<MouseEvent>) => void;
-  onBeforeChange: () => void;
-  onChange: (attrs: Partial<TextBlock>) => void;
-}) {
-  const shapeRef = useRef<Konva.Rect>(null);
-  const trRef = useRef<Konva.Transformer>(null);
-  const isManual = block.source === "manual";
-
-  // Register this node in the shared map for multi-drag coordination
-  useEffect(() => {
-    if (shapeRef.current) blockNodesRef.current.set(block.id, shapeRef.current);
-    return () => { blockNodesRef.current.delete(block.id); };
-  }, [block.id, blockNodesRef]);
-
-  useEffect(() => {
-    if (isSelected && !isMultiSelected && trRef.current && shapeRef.current) {
-      trRef.current.nodes([shapeRef.current]);
-      trRef.current.getLayer()?.batchDraw();
-    }
-  }, [isSelected, isMultiSelected]);
-
-  /* ── Multi-drag tracking ── */
-  const dragCtxRef = useRef<{
-    startX: number;
-    startY: number;
-    peers: Map<string, { x: number; y: number }>;
-  } | null>(null);
-
-  const handleDragStart = () => {
-    if (!isMultiSelected) return;
-    const ids = useEditorSelectionStore.getState().selectedBlockIds;
-    if (ids.size <= 1) return;
-    const peers = new Map<string, { x: number; y: number }>();
-    ids.forEach((id) => {
-      if (id !== block.id) {
-        const node = blockNodesRef.current.get(id);
-        if (node) peers.set(id, { x: node.x(), y: node.y() });
-      }
-    });
-    dragCtxRef.current = {
-      startX: shapeRef.current!.x(),
-      startY: shapeRef.current!.y(),
-      peers,
-    };
-  };
-
-  const handleDragMove = () => {
-    const ctx = dragCtxRef.current;
-    if (!ctx) return;
-    const dx = shapeRef.current!.x() - ctx.startX;
-    const dy = shapeRef.current!.y() - ctx.startY;
-    ctx.peers.forEach(({ x, y }, id) => {
-      const node = blockNodesRef.current.get(id);
-      if (node) {
-        node.x(x + dx);
-        node.y(y + dy);
-      }
-    });
-  };
-
-  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const ctx = dragCtxRef.current;
-    if (ctx) {
-      // Bulk-move: push one undo snapshot, then update all selected blocks
-      onBeforeChange();
-      const changes: { id: string; x: number; y: number }[] = [
-        { id: block.id, x: e.target.x(), y: e.target.y() },
-      ];
-      ctx.peers.forEach(({ x, y }, id) => {
-        const node = blockNodesRef.current.get(id);
-        if (node) changes.push({ id, x: node.x(), y: node.y() });
-      });
-      bulkChangeRef.current(changes);
-      dragCtxRef.current = null;
-    } else {
-      onBeforeChange();
-      onChange({ x: e.target.x(), y: e.target.y() });
-    }
-  };
-
-  const handleTransformEnd = () => {
-    const node = shapeRef.current;
-    if (!node) return;
-    onBeforeChange();
-    const sx = node.scaleX();
-    const sy = node.scaleY();
-    node.scaleX(1);
-    node.scaleY(1);
-    onChange({
-      x: node.x(),
-      y: node.y(),
-      width: Math.max(20, node.width() * sx),
-      height: Math.max(14, node.height() * sy),
-      rotation: node.rotation(),
-    });
-  };
-
-  // Theme-aware colors
-  const ocrColor = primaryColor;
-  const manualColor = primaryColor;
-  const selectedAccent = tertiaryColor;
-  const multiSelectAccent = primaryColor;
-
-  // Detect text overflow — show warning color when text doesn't fit
-  const overflowing = useMemo(() => isTextOverflowing(block), [block]);
-  const overflowColor = errorColor;
-
-  const stroke = isMultiSelected
-    ? multiSelectAccent
-    : isSelected
-      ? (overflowing ? overflowColor : selectedAccent)
-      : overflowing
-        ? overflowColor
-        : (isManual ? manualColor : ocrColor);
-  const fill = isMultiSelected
-    ? undefined
-    : isSelected
-      ? (overflowing ? "rgba(186, 26, 26, 0.08)" : undefined)
-      : "rgba(0, 0, 0, 0.01)";
-
-  // Multi-selected blocks get solid border (no dash), single unselected OCR blocks get dashed
-  const dashStyle = isMultiSelected
-    ? undefined
-    : isManual
-      ? undefined
-      : (isSelected ? undefined : [6 / scale, 3 / scale]);
-
-  // Anchor visual config — fixed screen-px (Transformer bypasses Stage transform)
-  const anchorSz = 8;
-  const anchorCorner = 4; // half → perfect circle
-
-  return (
-    <>
-      <Rect
-        ref={shapeRef}
-        x={block.x}
-        y={block.y}
-        width={block.width}
-        height={block.height}
-        rotation={block.rotation ?? 0}
-        stroke={stroke}
-        strokeWidth={isSelected ? strokeW * 1 : strokeW * 0.5}
-        fill={fill}
-        dash={dashStyle}
-        cornerRadius={2 / scale}
-        listening={listening}
-        draggable={isSelected && !isMultiSelected}
-        perfectDrawEnabled={false}
-        onClick={(e) => onSelect(e)}
-        onTap={(e) => onSelect(e as unknown as Konva.KonvaEventObject<MouseEvent>)}
-        onDragStart={handleDragStart}
-        onDragMove={handleDragMove}
-        onDragEnd={handleDragEnd}
-        onTransformEnd={handleTransformEnd}
-        onMouseEnter={() => {
-          if (listening) {
-            const container = stageRef.current?.container();
-            if (container) container.style.cursor = isSelected ? "move" : "pointer";
-          }
-        }}
-        onMouseLeave={() => {
-          const container = stageRef.current?.container();
-          if (container) container.style.cursor = "";
-        }}
-      />
-      {isSelected && !isMultiSelected && (
-        <Transformer
-          ref={trRef}
-          rotateEnabled={true}
-          rotateAnchorOffset={20}
-          rotateAnchorCursor={`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 256 256'%3E%3Cpath fill='%23333' d='M228 48v64a12 12 0 0 1-12 12h-64a12 12 0 0 1 0-24h35L168.4 81.35a76 76 0 1 0 1.14 108.88 12 12 0 0 1 16.92 17A100 100 0 1 1 153 64.52L176 87V52a12 12 0 0 1 24 0Z'/%3E%3C/svg%3E") 10 10, pointer`}
-          keepRatio={false}
-          enabledAnchors={[
-            "top-left", "top-right", "bottom-left", "bottom-right",
-          ]}
-          anchorSize={anchorSz}
-          anchorCornerRadius={anchorCorner}
-          anchorStroke={selectedAccent}
-          anchorStrokeWidth={1.5}
-          anchorFill="#ffffff"
-          borderStroke={selectedAccent}
-          borderStrokeWidth={1}
-          borderDash={[0]}
-          boundBoxFunc={(_oldBox, newBox) => {
-            if (Math.abs(newBox.width) < 20 || Math.abs(newBox.height) < 14) {
-              return _oldBox;
-            }
-            return newBox;
-          }}
-        />
-      )}
-    </>
-  );
-}, (prev, next) => (
-  prev.block === next.block &&
-  prev.isSelected === next.isSelected &&
-  prev.isMultiSelected === next.isMultiSelected &&
-  prev.strokeW === next.strokeW &&
-  prev.scale === next.scale &&
-  prev.listening === next.listening &&
-  prev.primaryColor === next.primaryColor &&
-  prev.secondaryColor === next.secondaryColor &&
-  prev.tertiaryColor === next.tertiaryColor &&
-  prev.errorColor === next.errorColor
-));
-
-/* ── Text Block Node ── */
-
-/**
- * Normalize text for manga-style vertical typesetting:
- * - Replace sequences of periods/dots with proper ellipsis character (…)
- * - Keep punctuation pairs (like !?) intact for combined rendering
- */
-function normalizeMangaText(text: string): string {
-  let s = text;
-  // Normalize various dot sequences to ellipsis
-  s = s.replace(/\.{3,}/g, "…");   // ... or more → …
-  s = s.replace(/。{2,}/g, "…");    // 。。。 → …
-  s = s.replace(/…{2,}/g, "……");   // Cap at double ellipsis (manga standard)
-  // Remove spaces between adjacent punctuation marks (!?！？) so pairs combine.
-  // Lookahead keeps the second mark unconsumed, so chained marks (！ ？ ！) fully collapse.
-  s = s.replace(/([!?！？])\s+(?=[!?！？])/g, "$1");
-  return s;
-}
-
-/** Punctuation pairs that should be rendered as tate-chu-yoko (横組み in vertical) */
-const COMBINED_PUNCT_RE = /^[!?！？]{2}$/;
-
-/** Em-dash characters that should render as a vertical line in vertical layout */
-const EM_DASH_CHARS = new Set(["—", "─", "―", "ー"]);
-
-/** Middle dot / interpunct characters used for manga ellipsis */
-const MIDDLE_DOT_CHARS = new Set(["·", "・", "‧", "⋅", "•"]);
-
-/** Ellipsis character — each one expands to 3 dots in vertical layout */
-const ELLIPSIS_CHARS = new Set(["…", "⋯"]);
-
-/** Wave dash characters that should be rotated 90° in vertical layout */
-const WAVE_DASH_CHARS = new Set(["~", "～", "〜"]);
-
-/** Parentheses/brackets that should be rotated 90° in vertical layout */
-const PAREN_CHARS = new Set(["(", ")", "（", "）"]);
-
-/** Single fullwidth punctuation that should be centered in its cell */
-const SINGLE_CENTER_PUNCT = new Set(["！", "？", "!", "?"]);
-
-/** Fullwidth exclamation/question marks — need tighter rendering in pairs */
-const FULLWIDTH_PUNCT = new Set(["！", "？"]);
-
-/** Convert fullwidth ！？ to halfwidth !? for rendering (removes glyph padding) */
-function toHalfwidthPunct(ch: string): string {
-  if (ch === "！") return "!";
-  if (ch === "？") return "?";
-  return ch;
-}
-
-/**
- * Token types for vertical manga layout rendering.
- * - "char": normal single character
- * - "combined": punctuation pair rendered as tate-chu-yoko (!?, !!, etc.)
- * - "dots": consecutive middle dots rendered with tight spacing
- * - "dash": em-dash rendered as a continuous vertical line
- * - "wave": wave dash rotated 90°
- * - "paren": parentheses rotated 90°
- */
-type VToken =
-  | { type: "char"; text: string }
-  | { type: "combined"; text: string }
-  | { type: "dots"; text: string; count: number }
-  | { type: "dash"; count: number }
-  | { type: "wave"; text: string }
-  | { type: "paren"; text: string };
-
-/**
- * Tokenize a string for vertical manga layout.
- * Groups punctuation pairs, consecutive middle dots, and em-dashes.
- */
-function tokenizeVertical(text: string): VToken[] {
-  const chars = Array.from(text);
-  const tokens: VToken[] = [];
-  let i = 0;
-  while (i < chars.length) {
-    // Check for combined punctuation pairs
-    if (i + 1 < chars.length) {
-      const pair = chars[i] + chars[i + 1];
-      if (COMBINED_PUNCT_RE.test(pair)) {
-        tokens.push({ type: "combined", text: pair });
-        i += 2;
-        continue;
-      }
-    }
-    // Check for consecutive em-dashes (——)
-    if (EM_DASH_CHARS.has(chars[i])) {
-      let count = 0;
-      while (i < chars.length && EM_DASH_CHARS.has(chars[i])) { count++; i++; }
-      tokens.push({ type: "dash", count });
-      continue;
-    }
-    // Check for ellipsis characters (… each = 3 dots)
-    if (ELLIPSIS_CHARS.has(chars[i])) {
-      let dotCount = 0;
-      while (i < chars.length && ELLIPSIS_CHARS.has(chars[i])) { dotCount += 3; i++; }
-      tokens.push({ type: "dots", text: "·", count: dotCount });
-      continue;
-    }
-    // Check for consecutive middle dots (···)
-    if (MIDDLE_DOT_CHARS.has(chars[i])) {
-      let count = 0;
-      while (i < chars.length && MIDDLE_DOT_CHARS.has(chars[i])) { count++; i++; }
-      tokens.push({ type: "dots", text: "·", count });
-      continue;
-    }
-    // Check for wave dash (~, 〜) — rotated 90° in vertical
-    if (WAVE_DASH_CHARS.has(chars[i])) {
-      tokens.push({ type: "wave", text: chars[i] });
-      i++;
-      continue;
-    }
-    // Check for parentheses — rotated 90° in vertical
-    if (PAREN_CHARS.has(chars[i])) {
-      tokens.push({ type: "paren", text: chars[i] });
-      i++;
-      continue;
-    }
-    tokens.push({ type: "char", text: chars[i] });
-    i++;
-  }
-  return tokens;
-}
-
-/** Count how many vertical cells a token occupies */
-function tokenCellCount(t: VToken): number {
-  if (t.type === "dash") return t.count;
-  if (t.type === "dots") return Math.ceil(t.count / 3); // 3 dots per cell (manga standard)
-  return 1;
-}
-
-/* ── Overflow detection ── */
-
-/** Shared off-screen canvas for text measurement */
-let _measureCanvas: HTMLCanvasElement | null = null;
-function getMeasureCtx(): CanvasRenderingContext2D {
-  if (!_measureCanvas) _measureCanvas = document.createElement("canvas");
-  return _measureCanvas.getContext("2d")!;
-}
-
-/**
- * CJK-aware word-wrap for off-screen measurement — mirrors export-utils wrapText.
- */
-const CJK_RANGE_RE =
-  /[\u2E80-\u2FFF\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF]/;
-
-function tokeniseForWrap(text: string): string[] {
-  const tokens: string[] = [];
-  let buf = "";
-  for (const ch of text) {
-    if (CJK_RANGE_RE.test(ch)) {
-      if (buf) { tokens.push(buf); buf = ""; }
-      tokens.push(ch);
-    } else if (/\s/.test(ch)) {
-      if (buf) { tokens.push(buf); buf = ""; }
-      tokens.push(ch);
-    } else if (ch === "-") {
-      buf += ch;
-      tokens.push(buf);
-      buf = "";
-    } else {
-      buf += ch;
-    }
-  }
-  if (buf) tokens.push(buf);
-  return tokens;
-}
-
-function measureWrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): number {
-  const paragraphs = text.split("\n");
-  let lineCount = 0;
-  for (const para of paragraphs) {
-    const tokens = tokeniseForWrap(para);
-    let currentLine = "";
-    for (const token of tokens) {
-      if (!currentLine && /^\s+$/.test(token)) continue;
-      const testLine = currentLine + token;
-      if (ctx.measureText(testLine).width > maxWidth && currentLine) {
-        lineCount++;
-        currentLine = /^\s+$/.test(token) ? "" : token;
-      } else {
-        currentLine = testLine;
-      }
-    }
-    if (currentLine && ctx.measureText(currentLine).width > maxWidth) {
-      let charLine = "";
-      for (const ch of currentLine) {
-        const test = charLine + ch;
-        if (ctx.measureText(test).width > maxWidth && charLine) {
-          lineCount++;
-          charLine = ch;
-        } else {
-          charLine = test;
-        }
-      }
-      lineCount++;
-    } else {
-      lineCount++;
-    }
-  }
-  return lineCount;
-}
-
-/**
- * Determine whether a TextBlock's content overflows its bounding box.
- * Returns true if text doesn't fit.
- */
-function isTextOverflowing(block: TextBlock): boolean {
-  const displayText = block.translatedText || block.originalText;
-  if (!displayText) return false;
-
-  const pad = block.padding ?? 0;
-  const innerW = Math.max(1, block.width - pad * 2);
-  const innerH = Math.max(1, block.height - pad * 2);
-  const fontSize = block.fontSize || 14;
-  const lineH = block.lineHeight ?? 1.2;
-  const letterSpacing = block.letterSpacing ?? 0;
-
-  if (block.textDirection === "vertical") {
-    const charH = fontSize * 1.15 + letterSpacing;
-    const colW = fontSize * lineH;
-    const charsPerCol = Math.max(1, Math.floor(innerH / charH));
-
-    const normalizedText = normalizeMangaText(displayText);
-    const segments = normalizedText.split("\n");
-    let totalCols = 0;
-    for (const seg of segments) {
-      const tokens = tokenizeVertical(seg);
-      if (tokens.length === 0) {
-        totalCols++;
-      } else {
-        let cells = 0;
-        let colCount = 0;
-        for (const tok of tokens) {
-          const c = tokenCellCount(tok);
-          if (cells + c > charsPerCol && colCount > 0) {
-            totalCols++;
-            cells = 0;
-          }
-          if (cells === 0) colCount = 1;
-          cells += c;
-        }
-        if (cells > 0) totalCols++;
-      }
-    }
-    return totalCols * colW > innerW;
-  }
-
-  // Horizontal: measure text wrapping
-  const ctx = getMeasureCtx();
-  const fontFamily = block.fontFamily || "Comic Neue, sans-serif";
-  const fontWeight = block.fontWeight || "normal";
-  const fontStyle = block.fontStyle || "normal";
-  ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
-  // Always reset letterSpacing — the shared ctx retains the previous value
-  if ("letterSpacing" in ctx) {
-    (ctx as unknown as Record<string, string>).letterSpacing = `${letterSpacing}px`;
-  }
-  const lineCount = measureWrapLines(ctx, normalizeMangaText(displayText), innerW);
-  const totalTextH = lineCount * fontSize * lineH;
-  return totalTextH > innerH;
-}
-
-/**
- * Binary-search for the largest font size (integer) that fits the block
- * without overflowing. Returns the optimal fontSize, clamped to [4, currentFontSize].
- */
-export function computeAutoFitFontSize(block: TextBlock): number {
-  const MAX_FONT = 200;
-  const MIN_FONT = 4;
-  // Binary-search the largest font size that doesn't overflow.
-  let lo = MIN_FONT;
-  let hi = MAX_FONT;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    const test = { ...block, fontSize: mid };
-    if (isTextOverflowing(test)) {
-      hi = mid - 1;
-    } else {
-      lo = mid;
-    }
-  }
-  return lo;
-}
-
-const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { block: TextBlock; fontGeneration: number }) {
-  // fontGeneration is used to force re-render when fonts finish loading
-  void fontGeneration;
-  const displayText = block.translatedText || block.originalText;
-  if (!displayText) return null;
-
-  const isVertical = block.textDirection === "vertical";
-  const fontFamily = block.fontFamily || "Comic Neue, sans-serif";
-  const fontColor = block.fontColor || "#000000";
-  const align = block.textAlign || "center";
-  const lineH = block.lineHeight ?? 1.2;
-  const rotation = block.rotation ?? 0;
-  const fontWeight = block.fontWeight || "normal";
-  const fontStyle = block.fontStyle || "normal";
-  const letterSpacing = block.letterSpacing ?? 0;
-  const strokeEnabled = block.strokeEnabled ?? false;
-  const strokeW = block.strokeWidth ?? 4;
-  const contentAlign = block.contentAlign || "middle";
-  const pad = block.padding ?? 0;
-
-  // Effective inner dimensions after padding
-  const innerW = Math.max(1, block.width - pad * 2);
-  const innerH = Math.max(1, block.height - pad * 2);
-
-  if (isVertical) {
-    // Vertical text: multi-column right-to-left layout like real manga.
-    // Characters flow top-to-bottom; when a column fills the block height,
-    // text wraps to the next column to the left.
-    // lineHeight controls column gap (multiplied by fontSize for column width).
-    // textAlign maps: left→top, center→center, right→bottom for vertical alignment.
-    const fontSize = block.fontSize || 14;
-    const charH = fontSize * 1.15 + letterSpacing; // character spacing including user letterSpacing
-    const colW = fontSize * lineH; // column width driven by lineHeight (acts as column gap)
-    const charsPerCol = Math.max(1, Math.floor(innerH / charH));
-
-    // Normalize text for manga typesetting (ellipsis, etc.)
-    const normalizedText = normalizeMangaText(displayText);
-
-    // Split into columns: newlines force a column break,
-    // then auto-wrap within each segment when it exceeds block height.
-    // Uses tokenizeVertical to group punctuation pairs, middle dots, em-dashes.
-    const segments = normalizedText.split("\n");
-    const columns: VToken[][] = [];
-    for (const seg of segments) {
-      const tokens = tokenizeVertical(seg);
-      if (tokens.length === 0) {
-        columns.push([]); // empty column for blank newline
-      } else {
-        // Pack tokens into columns respecting each token's cell count
-        let col: VToken[] = [];
-        let cells = 0;
-        for (const tok of tokens) {
-          const c = tokenCellCount(tok);
-          if (cells + c > charsPerCol && col.length > 0) {
-            columns.push(col);
-            col = [];
-            cells = 0;
-          }
-          col.push(tok);
-          cells += c;
-        }
-        if (col.length > 0) columns.push(col);
-      }
-    }
-
-    const combinedStyle =
-      `${fontWeight === "bold" ? "bold" : ""} ${fontStyle}`.trim() || "normal";
-
-    // Horizontal alignment of the column group within the block
-    // "left" (top icon) → pack right (RTL start), "center" → center, "right" (bottom icon) → pack left
-    const totalColumnsW = columns.length * colW;
-    const slack = Math.max(0, innerW - totalColumnsW);
-    const groupOffset =
-      align === "center" ? slack / 2 :
-      align === "right" ? slack :
-      0; // "left" → no offset, columns at right edge
-
-    // Check if any column has special tokens (combined, dots, dash, wave, paren, or single ！？)
-    const hasSpecialTokens = columns.some((col) => col.some((t) =>
-      t.type !== "char" || SINGLE_CENTER_PUNCT.has(t.text)
-    ));
-
-    // Simple path: all chars are simple — use single KonvaText per column (fast)
-    if (!hasSpecialTokens) {
-      return (
-        <Group
-          x={block.x + pad}
-          y={block.y + pad}
-          width={innerW}
-          height={innerH}
-          rotation={rotation}
-          clipX={0}
-          clipY={0}
-          clipWidth={innerW}
-          clipHeight={innerH}
-          listening={false}
-        >
-          {columns.map((col, ci) => {
-            const colX = groupOffset + (totalColumnsW - (ci + 1) * colW);
-            const colCells = col.reduce((n, t) => n + (t.type === "char" ? 1 : 1), 0);
-            const colContentH = colCells * charH;
-            const vSlack = Math.max(0, innerH - colContentH);
-            const colYOffset =
-              contentAlign === "middle" ? vSlack / 2 :
-              contentAlign === "bottom" ? vSlack : 0;
-            const sharedProps = {
-              x: colX,
-              y: colYOffset,
-              width: colW,
-              text: col.map((t) => t.type === "char" ? t.text : "").join("\n"),
-              fontSize,
-              lineHeight: 1.15,
-              letterSpacing,
-              fontFamily,
-              fontStyle: combinedStyle,
-              align: "center" as const,
-              verticalAlign: "top" as const,
-              wrap: "none" as const,
-              listening: false,
-            };
-            return strokeEnabled ? (
-              <Group key={ci}>
-                <KonvaText {...sharedProps} fill="white" stroke="white" strokeWidth={strokeW} lineJoin="round" />
-                <KonvaText {...sharedProps} fill={fontColor} strokeEnabled={false} />
-              </Group>
-            ) : (
-              <KonvaText key={ci} {...sharedProps} fill={fontColor} />
-            );
-          })}
-        </Group>
-      );
-    }
-
-    // Complex path: render each token individually so combined pairs, dots,
-    // and em-dashes can receive custom rendering
-    return (
-      <Group
-        x={block.x + pad}
-        y={block.y + pad}
-        width={innerW}
-        height={innerH}
-        rotation={rotation}
-        clipX={0}
-        clipY={0}
-        clipWidth={innerW}
-        clipHeight={innerH}
-        listening={false}
-      >
-        {columns.map((col, ci) => {
-          const colX = groupOffset + (totalColumnsW - (ci + 1) * colW);
-          let cellIndex = 0; // tracks vertical position in cells
-          const colCells = col.reduce((n, t) => n + tokenCellCount(t), 0);
-          const colContentH = colCells * charH;
-          const vSlack = Math.max(0, innerH - colContentH);
-          const colYOffset =
-            contentAlign === "middle" ? vSlack / 2 :
-            contentAlign === "bottom" ? vSlack : 0;
-          return (
-            <Group key={ci}>
-              {col.map((token, ti) => {
-                const tokenY = cellIndex * charH + colYOffset;
-                const cellsUsed = tokenCellCount(token);
-                cellIndex += cellsUsed;
-
-                if (token.type === "combined") {
-                  // Tate-chu-yoko: render pair side by side in one cell.
-                  // Convert fullwidth ！？ to halfwidth to eliminate glyph padding.
-                  const pairFontSize = fontSize * 0.88;
-                  const renderChars = Array.from(token.text).map(toHalfwidthPunct);
-                  const halfW = colW / 2;
-                  return (
-                    <Group key={ti}>
-                      {renderChars.map((ch, ci) => {
-                        const cProps = {
-                          text: ch,
-                          fontSize: pairFontSize,
-                          fontFamily,
-                          fontStyle: combinedStyle,
-                          align: "center" as const,
-                          verticalAlign: "middle" as const,
-                          width: halfW,
-                          height: charH,
-                          x: colX + ci * halfW,
-                          y: tokenY,
-                          wrap: "none" as const,
-                          listening: false,
-                        };
-                        return strokeEnabled ? (
-                          <Group key={ci}>
-                            <KonvaText {...cProps} fill="white" stroke="white" strokeWidth={strokeW * 0.7} lineJoin="round" />
-                            <KonvaText {...cProps} fill={fontColor} strokeEnabled={false} />
-                          </Group>
-                        ) : (
-                          <KonvaText key={ci} {...cProps} fill={fontColor} />
-                        );
-                      })}
-                    </Group>
-                  );
-                }
-
-                if (token.type === "dots") {
-                  // Dots (…/···) — render as filled circles stacked vertically
-                  // 3 dots per cell, evenly spaced with small gaps
-                  const totalH = cellsUsed * charH;
-                  const dotRadius = Math.max(1.5, fontSize * 0.055);
-                  const gap = totalH / (token.count + 1); // even distribution
-                  const dotCx = colX + colW / 2;
-                  const dotElements: React.ReactNode[] = [];
-                  for (let d = 0; d < token.count; d++) {
-                    const dY = tokenY + gap * (d + 1);
-                    if (strokeEnabled) {
-                      dotElements.push(
-                        <Circle key={`s${d}`} x={dotCx} y={dY} radius={dotRadius + strokeW * 0.3} fill="white" listening={false} />,
-                      );
-                    }
-                    dotElements.push(
-                      <Circle key={`f${d}`} x={dotCx} y={dY} radius={dotRadius} fill={fontColor} listening={false} />,
-                    );
-                  }
-                  return <Group key={ti}>{dotElements}</Group>;
-                }
-
-                if (token.type === "dash") {
-                  // Em-dash (——) — render as a continuous vertical line spanning cells
-                  const dashH = cellsUsed * charH;
-                  const lineThickness = Math.max(1.5, fontSize * 0.065);
-                  const lineX = colX + colW / 2 - lineThickness / 2;
-                  const marginY = charH * 0.08; // small top/bottom inset
-                  if (strokeEnabled) {
-                    return (
-                      <Group key={ti}>
-                        <Rect x={lineX - strokeW * 0.4} y={tokenY + marginY} width={lineThickness + strokeW * 0.8} height={dashH - marginY * 2} fill="white" cornerRadius={lineThickness} listening={false} />
-                        <Rect x={lineX} y={tokenY + marginY} width={lineThickness} height={dashH - marginY * 2} fill={fontColor} cornerRadius={lineThickness / 2} listening={false} />
-                      </Group>
-                    );
-                  }
-                  return (
-                    <Rect key={ti} x={lineX} y={tokenY + marginY} width={lineThickness} height={dashH - marginY * 2} fill={fontColor} cornerRadius={lineThickness / 2} listening={false} />
-                  );
-                }
-
-                if (token.type === "wave") {
-                  // Wave dash (~) — render rotated 90° CW to become vertical wave
-                  const waveCenterX = colX + colW / 2;
-                  const waveCenterY = tokenY + charH / 2;
-                  const waveProps = {
-                    text: token.text,
-                    fontSize,
-                    fontFamily,
-                    fontStyle: combinedStyle,
-                    align: "center" as const,
-                    verticalAlign: "middle" as const,
-                    width: charH,
-                    height: colW,
-                    offsetX: charH / 2,
-                    offsetY: colW / 2,
-                    x: waveCenterX,
-                    y: waveCenterY,
-                    rotation: 90,
-                    wrap: "none" as const,
-                    listening: false,
-                  };
-                  return strokeEnabled ? (
-                    <Group key={ti}>
-                      <KonvaText {...waveProps} fill="white" stroke="white" strokeWidth={strokeW} lineJoin="round" />
-                      <KonvaText {...waveProps} fill={fontColor} strokeEnabled={false} />
-                    </Group>
-                  ) : (
-                    <KonvaText key={ti} {...waveProps} fill={fontColor} />
-                  );
-                }
-
-                if (token.type === "paren") {
-                  // Parentheses — render rotated 90° CW like wave dashes
-                  const parenCenterX = colX + colW / 2;
-                  const parenCenterY = tokenY + charH / 2;
-                  const parenProps = {
-                    text: token.text,
-                    fontSize,
-                    fontFamily,
-                    fontStyle: combinedStyle,
-                    align: "center" as const,
-                    verticalAlign: "middle" as const,
-                    width: charH,
-                    height: colW,
-                    offsetX: charH / 2,
-                    offsetY: colW / 2,
-                    x: parenCenterX,
-                    y: parenCenterY,
-                    rotation: 90,
-                    wrap: "none" as const,
-                    listening: false,
-                  };
-                  return strokeEnabled ? (
-                    <Group key={ti}>
-                      <KonvaText {...parenProps} fill="white" stroke="white" strokeWidth={strokeW} lineJoin="round" />
-                      <KonvaText {...parenProps} fill={fontColor} strokeEnabled={false} />
-                    </Group>
-                  ) : (
-                    <KonvaText key={ti} {...parenProps} fill={fontColor} />
-                  );
-                }
-
-                // Normal single character
-                // Center single punctuation marks (！？) in their cell
-                const isCenterPunct = SINGLE_CENTER_PUNCT.has(token.text);
-                // Convert fullwidth ！？ to halfwidth for proper centering
-                const renderText = FULLWIDTH_PUNCT.has(token.text) ? toHalfwidthPunct(token.text) : token.text;
-                const charProps = {
-                  text: renderText,
-                  fontSize,
-                  fontFamily,
-                  fontStyle: combinedStyle,
-                  letterSpacing,
-                  align: "center" as const,
-                  verticalAlign: isCenterPunct ? "middle" as const : "top" as const,
-                  width: colW,
-                  height: isCenterPunct ? charH : undefined,
-                  x: colX,
-                  y: tokenY,
-                  wrap: "none" as const,
-                  listening: false,
-                };
-                return strokeEnabled ? (
-                  <Group key={ti}>
-                    <KonvaText {...charProps} fill="white" stroke="white" strokeWidth={strokeW} lineJoin="round" />
-                    <KonvaText {...charProps} fill={fontColor} strokeEnabled={false} />
-                  </Group>
-                ) : (
-                  <KonvaText key={ti} {...charProps} fill={fontColor} />
-                );
-              })}
-            </Group>
-          );
-        })}
-      </Group>
-    );
-  }
-
-  const horizProps = {
-    x: block.x + pad,
-    y: block.y + pad,
-    width: innerW,
-    height: innerH,
-    rotation,
-    text: normalizeMangaText(displayText),
-    fontSize: block.fontSize || 14,
-    lineHeight: lineH,
-    letterSpacing,
-    fontFamily,
-    fontStyle: `${fontWeight === "bold" ? "bold" : ""} ${fontStyle}`.trim() || "normal",
-    align,
-    verticalAlign: contentAlign as "top" | "middle" | "bottom",
-    wrap: "word" as const,
-    listening: false,
-  };
-
-  if (strokeEnabled) {
-    return (
-      <Group>
-        {/* Bottom layer: white stroke outline */}
-        <KonvaText
-          {...horizProps}
-          fill="white"
-          stroke="white"
-          strokeWidth={strokeW}
-          lineJoin="round"
-        />
-        {/* Top layer: clean fill */}
-        <KonvaText
-          {...horizProps}
-          fill={fontColor}
-          strokeEnabled={false}
-        />
-      </Group>
-    );
-  }
-
-  return (
-    <KonvaText
-      {...horizProps}
-      fill={fontColor}
-    />
-  );
-});
