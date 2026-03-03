@@ -67,7 +67,7 @@ export function generateMask(
   // Draw OCR bounding boxes as white (inpaint)
   // Scale each polygon outward from its centroid by MASK_EXPAND_RATIO
   // so the mask covers slightly beyond the detected text boundary.
-  const MASK_EXPAND_RATIO = 1.15;
+  const MASK_EXPAND_RATIO = 1.1;
 
   ctx.fillStyle = "#ffffff";
   for (const block of page.textBlocks) {

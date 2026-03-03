@@ -118,6 +118,9 @@ function normalizeMangaText(text: string): string {
   s = s.replace(/\.{3,}/g, "…");
   s = s.replace(/。{2,}/g, "…");
   s = s.replace(/…{2,}/g, "……");
+  // Remove spaces between adjacent punctuation marks (!?！？) so pairs combine.
+  // Lookahead keeps the second mark unconsumed, so chained marks (！ ？ ！) fully collapse.
+  s = s.replace(/([!?！？])\s+(?=[!?！？])/g, "$1");
   return s;
 }
 
@@ -126,13 +129,24 @@ const EXPORT_EM_DASH_CHARS = new Set(["—", "─", "―", "ー"]);
 const EXPORT_MIDDLE_DOT_CHARS = new Set(["·", "・", "‧", "⋅", "•"]);
 const EXPORT_ELLIPSIS_CHARS = new Set(["…", "⋯"]);
 const EXPORT_WAVE_DASH_CHARS = new Set(["~", "～", "〜"]);
+const EXPORT_PAREN_CHARS = new Set(["(", ")", "（", "）"]);
+const EXPORT_SINGLE_CENTER_PUNCT = new Set(["！", "？", "!", "?"]);
+const EXPORT_FULLWIDTH_PUNCT = new Set(["！", "？"]);
+
+/** Convert fullwidth ！？ to halfwidth !? for rendering */
+function toHalfwidthPunctExport(ch: string): string {
+  if (ch === "！") return "!";
+  if (ch === "？") return "?";
+  return ch;
+}
 
 type ExVToken =
   | { type: "char"; text: string }
   | { type: "combined"; text: string }
   | { type: "dots"; text: string; count: number }
   | { type: "dash"; count: number }
-  | { type: "wave"; text: string };
+  | { type: "wave"; text: string }
+  | { type: "paren"; text: string };
 
 function tokenizeVerticalExport(text: string): ExVToken[] {
   const chars = Array.from(text);
@@ -167,6 +181,11 @@ function tokenizeVerticalExport(text: string): ExVToken[] {
     }
     if (EXPORT_WAVE_DASH_CHARS.has(chars[i])) {
       tokens.push({ type: "wave", text: chars[i] });
+      i++;
+      continue;
+    }
+    if (EXPORT_PAREN_CHARS.has(chars[i])) {
+      tokens.push({ type: "paren", text: chars[i] });
       i++;
       continue;
     }
@@ -289,22 +308,28 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
         cellIndex += cellsUsed;
 
         if (token.type === "combined") {
-          // Tate-chu-yoko: horizontal pair in one cell, ~72% font size
-          const pairFontSize = fontSize * 0.72;
+          // Tate-chu-yoko: render pair side by side in one cell.
+          // Convert fullwidth ！？ to halfwidth to eliminate glyph padding.
+          const pairFontSize = fontSize * 0.88;
           ctx.font = `${fontStyleVal} ${fontWeight} ${pairFontSize}px ${fontFamily}`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const midY = tokenY + charH / 2;
-          if (strokeEnabled) {
-            ctx.fillStyle = "white";
-            ctx.strokeStyle = "white";
-            ctx.lineWidth = strokeW * 0.7;
-            ctx.lineJoin = "round";
-            ctx.strokeText(token.text, cx, midY);
-            ctx.fillText(token.text, cx, midY);
+          const renderChars = Array.from(token.text).map(toHalfwidthPunctExport);
+          const halfCol = colW / 2;
+          for (let ci = 0; ci < renderChars.length; ci++) {
+            const chX = cx - halfCol / 2 + ci * halfCol;
+            if (strokeEnabled) {
+              ctx.fillStyle = "white";
+              ctx.strokeStyle = "white";
+              ctx.lineWidth = strokeW * 0.7;
+              ctx.lineJoin = "round";
+              ctx.strokeText(renderChars[ci], chX, midY);
+              ctx.fillText(renderChars[ci], chX, midY);
+            }
+            ctx.fillStyle = fontColor;
+            ctx.fillText(renderChars[ci], chX, midY);
           }
-          ctx.fillStyle = fontColor;
-          ctx.fillText(token.text, cx, midY);
           // Restore normal font
           ctx.font = fontStr;
           continue;
@@ -377,19 +402,49 @@ function renderTextBlock(ctx: CanvasRenderingContext2D, block: TextBlock) {
           continue;
         }
 
+        if (token.type === "paren") {
+          // Parentheses — render rotated 90° CW like wave dashes
+          ctx.save();
+          ctx.font = fontStr;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const parenCenterX = cx;
+          const parenCenterY = tokenY + charH / 2;
+          ctx.translate(parenCenterX, parenCenterY);
+          ctx.rotate(Math.PI / 2);
+          if (strokeEnabled) {
+            ctx.fillStyle = "white";
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = strokeW;
+            ctx.lineJoin = "round";
+            ctx.strokeText(token.text, 0, 0);
+            ctx.fillText(token.text, 0, 0);
+          }
+          ctx.fillStyle = fontColor;
+          ctx.fillText(token.text, 0, 0);
+          ctx.restore();
+          ctx.font = fontStr;
+          continue;
+        }
+
         // Normal character
+        // Center single punctuation marks (！？) in their cell
+        const isCenterPunct = EXPORT_SINGLE_CENTER_PUNCT.has(token.text);
+        // Convert fullwidth ！？ to halfwidth for proper centering
+        const renderText = EXPORT_FULLWIDTH_PUNCT.has(token.text) ? toHalfwidthPunctExport(token.text) : token.text;
         ctx.textAlign = "center";
-        ctx.textBaseline = "top";
+        ctx.textBaseline = isCenterPunct ? "middle" : "top";
+        const charY = isCenterPunct ? tokenY + charH / 2 : tokenY;
         if (strokeEnabled) {
           ctx.fillStyle = "white";
           ctx.strokeStyle = "white";
           ctx.lineWidth = strokeW;
           ctx.lineJoin = "round";
-          ctx.strokeText(token.text, cx, tokenY);
-          ctx.fillText(token.text, cx, tokenY);
+          ctx.strokeText(renderText, cx, charY);
+          ctx.fillText(renderText, cx, charY);
         }
         ctx.fillStyle = fontColor;
-        ctx.fillText(token.text, cx, tokenY);
+        ctx.fillText(renderText, cx, charY);
       }
     }
   } else {

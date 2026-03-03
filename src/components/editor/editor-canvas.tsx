@@ -65,7 +65,7 @@ export function EditorCanvas({ viewport, onViewportChange, activeTool, fitSignal
   if (pages.length > 0) {
     return (
       <div
-        className="h-full w-full bg-neutral-900"
+        className="h-full w-full bg-neutral-100 dark:bg-neutral-900"
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >

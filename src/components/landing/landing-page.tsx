@@ -490,7 +490,7 @@ function TranslationShowcase() {
 
       {/* Large manga panel preview */}
       <div className="mx-auto max-w-2xl">
-        <div className="aspect-[3/4] overflow-hidden rounded-3xl border border-outline-variant/10 bg-gradient-to-b from-surface-variant/20 to-surface-variant/5 shadow-2xl shadow-black/10">
+        <div className="aspect-[3/4] overflow-hidden rounded-3xl border border-outline-variant/10 bg-gradient-to-b from-surface-variant/20 to-surface-variant/5 shadow-lg shadow-black/3 dark:shadow-2xl dark:shadow-black/10">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -871,7 +871,7 @@ export function LandingPage() {
             initial={{ opacity: 0, x: -80, rotate: -14 }}
             animate={{ opacity: 1, x: 0, rotate: -6 }}
             transition={{ delay: 0.6, duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute top-[6%] -left-[8%] h-[88%] w-[48%] overflow-hidden rounded-3xl border border-white/[0.06] shadow-2xl shadow-black/20 md:-left-[2%] md:h-[92%] md:w-[38%]"
+            className="absolute top-[6%] -left-[8%] h-[88%] w-[48%] overflow-hidden rounded-3xl border border-white/[0.06] shadow-lg shadow-black/4 dark:shadow-2xl dark:shadow-black/20 md:-left-[2%] md:h-[92%] md:w-[38%]"
           >
             <Image
               src="/images/banner/koma-kun-banner-ja.jpg"
@@ -897,7 +897,7 @@ export function LandingPage() {
             animate={{ opacity: 1, x: 0, rotate: 6 }}
             transition={{ delay: 0.8, duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
             onClick={() => setRightBannerLang(prev => prev === 'zh' ? 'en' : 'zh')}
-            className="pointer-events-auto absolute top-[8%] -right-[8%] h-[88%] w-[48%] cursor-pointer overflow-hidden rounded-3xl border border-primary/10 shadow-2xl shadow-black/20 transition-shadow hover:shadow-primary/15 md:-right-[1%] md:h-[92%] md:w-[38%]"
+            className="pointer-events-auto absolute top-[8%] -right-[8%] h-[88%] w-[48%] cursor-pointer overflow-hidden rounded-3xl border border-primary/10 shadow-lg shadow-black/4 dark:shadow-2xl dark:shadow-black/20 transition-shadow hover:shadow-primary/15 md:-right-[1%] md:h-[92%] md:w-[38%]"
           >
             {/* Always-mounted images — crossfade via opacity, no mount/unmount clipping issues */}
             <div className="absolute inset-0">
@@ -1080,7 +1080,7 @@ export function LandingPage() {
 
           {/* Browser Mockup — scales 78%→100% on scroll */}
           <motion.div
-            className="w-full max-w-6xl overflow-hidden border border-outline-variant/10 bg-surface shadow-2xl shadow-black/30 will-change-transform"
+            className="w-full max-w-6xl overflow-hidden border border-outline-variant/10 bg-surface shadow-lg shadow-black/5 dark:shadow-2xl dark:shadow-black/30 will-change-transform"
             style={{
               scale: videoScale,
               borderRadius: videoBorderRadius,

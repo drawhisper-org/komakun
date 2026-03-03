@@ -1416,6 +1416,9 @@ function normalizeMangaText(text: string): string {
   s = s.replace(/\.{3,}/g, "…");   // ... or more → …
   s = s.replace(/。{2,}/g, "…");    // 。。。 → …
   s = s.replace(/…{2,}/g, "……");   // Cap at double ellipsis (manga standard)
+  // Remove spaces between adjacent punctuation marks (!?！？) so pairs combine.
+  // Lookahead keeps the second mark unconsumed, so chained marks (！ ？ ！) fully collapse.
+  s = s.replace(/([!?！？])\s+(?=[!?！？])/g, "$1");
   return s;
 }
 
@@ -1434,19 +1437,38 @@ const ELLIPSIS_CHARS = new Set(["…", "⋯"]);
 /** Wave dash characters that should be rotated 90° in vertical layout */
 const WAVE_DASH_CHARS = new Set(["~", "～", "〜"]);
 
+/** Parentheses/brackets that should be rotated 90° in vertical layout */
+const PAREN_CHARS = new Set(["(", ")", "（", "）"]);
+
+/** Single fullwidth punctuation that should be centered in its cell */
+const SINGLE_CENTER_PUNCT = new Set(["！", "？", "!", "?"]);
+
+/** Fullwidth exclamation/question marks — need tighter rendering in pairs */
+const FULLWIDTH_PUNCT = new Set(["！", "？"]);
+
+/** Convert fullwidth ！？ to halfwidth !? for rendering (removes glyph padding) */
+function toHalfwidthPunct(ch: string): string {
+  if (ch === "！") return "!";
+  if (ch === "？") return "?";
+  return ch;
+}
+
 /**
  * Token types for vertical manga layout rendering.
  * - "char": normal single character
  * - "combined": punctuation pair rendered as tate-chu-yoko (!?, !!, etc.)
  * - "dots": consecutive middle dots rendered with tight spacing
  * - "dash": em-dash rendered as a continuous vertical line
+ * - "wave": wave dash rotated 90°
+ * - "paren": parentheses rotated 90°
  */
 type VToken =
   | { type: "char"; text: string }
   | { type: "combined"; text: string }
   | { type: "dots"; text: string; count: number }
   | { type: "dash"; count: number }
-  | { type: "wave"; text: string };
+  | { type: "wave"; text: string }
+  | { type: "paren"; text: string };
 
 /**
  * Tokenize a string for vertical manga layout.
@@ -1490,6 +1512,12 @@ function tokenizeVertical(text: string): VToken[] {
     // Check for wave dash (~, 〜) — rotated 90° in vertical
     if (WAVE_DASH_CHARS.has(chars[i])) {
       tokens.push({ type: "wave", text: chars[i] });
+      i++;
+      continue;
+    }
+    // Check for parentheses — rotated 90° in vertical
+    if (PAREN_CHARS.has(chars[i])) {
+      tokens.push({ type: "paren", text: chars[i] });
       i++;
       continue;
     }
@@ -1737,8 +1765,10 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
       align === "right" ? slack :
       0; // "left" → no offset, columns at right edge
 
-    // Check if any column has special tokens (combined, dots, dash)
-    const hasSpecialTokens = columns.some((col) => col.some((t) => t.type !== "char"));
+    // Check if any column has special tokens (combined, dots, dash, wave, paren, or single ！？)
+    const hasSpecialTokens = columns.some((col) => col.some((t) =>
+      t.type !== "char" || SINGLE_CENTER_PUNCT.has(t.text)
+    ));
 
     // Simple path: all chars are simple — use single KonvaText per column (fast)
     if (!hasSpecialTokens) {
@@ -1823,31 +1853,38 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
                 cellIndex += cellsUsed;
 
                 if (token.type === "combined") {
-                  // Tate-chu-yoko: render the pair horizontally in one cell
-                  // Use ~72% font size, laid out side by side, centered in the cell
-                  const pairFontSize = fontSize * 0.72;
-                  const pairProps = {
-                    text: token.text,
-                    fontSize: pairFontSize,
-                    fontFamily,
-                    fontStyle: combinedStyle,
-                    letterSpacing: -1, // tighten
-                    align: "center" as const,
-                    verticalAlign: "middle" as const,
-                    width: colW,
-                    height: charH,
-                    x: colX,
-                    y: tokenY,
-                    wrap: "none" as const,
-                    listening: false,
-                  };
-                  return strokeEnabled ? (
+                  // Tate-chu-yoko: render pair side by side in one cell.
+                  // Convert fullwidth ！？ to halfwidth to eliminate glyph padding.
+                  const pairFontSize = fontSize * 0.88;
+                  const renderChars = Array.from(token.text).map(toHalfwidthPunct);
+                  const halfW = colW / 2;
+                  return (
                     <Group key={ti}>
-                      <KonvaText {...pairProps} fill="white" stroke="white" strokeWidth={strokeW * 0.7} lineJoin="round" />
-                      <KonvaText {...pairProps} fill={fontColor} strokeEnabled={false} />
+                      {renderChars.map((ch, ci) => {
+                        const cProps = {
+                          text: ch,
+                          fontSize: pairFontSize,
+                          fontFamily,
+                          fontStyle: combinedStyle,
+                          align: "center" as const,
+                          verticalAlign: "middle" as const,
+                          width: halfW,
+                          height: charH,
+                          x: colX + ci * halfW,
+                          y: tokenY,
+                          wrap: "none" as const,
+                          listening: false,
+                        };
+                        return strokeEnabled ? (
+                          <Group key={ci}>
+                            <KonvaText {...cProps} fill="white" stroke="white" strokeWidth={strokeW * 0.7} lineJoin="round" />
+                            <KonvaText {...cProps} fill={fontColor} strokeEnabled={false} />
+                          </Group>
+                        ) : (
+                          <KonvaText key={ci} {...cProps} fill={fontColor} />
+                        );
+                      })}
                     </Group>
-                  ) : (
-                    <KonvaText key={ti} {...pairProps} fill={fontColor} />
                   );
                 }
 
@@ -1923,16 +1960,52 @@ const TextBlockNode = memo(function TextBlockNode({ block, fontGeneration }: { b
                   );
                 }
 
+                if (token.type === "paren") {
+                  // Parentheses — render rotated 90° CW like wave dashes
+                  const parenCenterX = colX + colW / 2;
+                  const parenCenterY = tokenY + charH / 2;
+                  const parenProps = {
+                    text: token.text,
+                    fontSize,
+                    fontFamily,
+                    fontStyle: combinedStyle,
+                    align: "center" as const,
+                    verticalAlign: "middle" as const,
+                    width: charH,
+                    height: colW,
+                    offsetX: charH / 2,
+                    offsetY: colW / 2,
+                    x: parenCenterX,
+                    y: parenCenterY,
+                    rotation: 90,
+                    wrap: "none" as const,
+                    listening: false,
+                  };
+                  return strokeEnabled ? (
+                    <Group key={ti}>
+                      <KonvaText {...parenProps} fill="white" stroke="white" strokeWidth={strokeW} lineJoin="round" />
+                      <KonvaText {...parenProps} fill={fontColor} strokeEnabled={false} />
+                    </Group>
+                  ) : (
+                    <KonvaText key={ti} {...parenProps} fill={fontColor} />
+                  );
+                }
+
                 // Normal single character
+                // Center single punctuation marks (！？) in their cell
+                const isCenterPunct = SINGLE_CENTER_PUNCT.has(token.text);
+                // Convert fullwidth ！？ to halfwidth for proper centering
+                const renderText = FULLWIDTH_PUNCT.has(token.text) ? toHalfwidthPunct(token.text) : token.text;
                 const charProps = {
-                  text: token.text,
+                  text: renderText,
                   fontSize,
                   fontFamily,
                   fontStyle: combinedStyle,
                   letterSpacing,
                   align: "center" as const,
-                  verticalAlign: "top" as const,
+                  verticalAlign: isCenterPunct ? "middle" as const : "top" as const,
                   width: colW,
+                  height: isCenterPunct ? charH : undefined,
                   x: colX,
                   y: tokenY,
                   wrap: "none" as const,
