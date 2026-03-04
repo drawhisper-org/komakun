@@ -341,30 +341,27 @@ export function EditorRightSidebar() {
         result = await detectText(activePage.originalImageBase64, visionApiKey);
       }
 
-      const newBlocks: TextBlock[] = result.blocks.map((b, i) => ({
-        id: `ocr-${Date.now()}-${i}`,
-        type: b.type,
-        source: "ocr" as const,
-        originalText: b.text,
-        translatedText: "",
-        x: b.x + offsetX,
-        y: b.y + offsetY,
-        width: b.width,
-        height: b.height,
-        fontSize: Math.max(
-          12,
-          Math.min(
-            24,
-            Math.round(
-              (b.height / Math.max(1, b.text.split("\n").length)) * 0.8
-            )
-          )
-        ),
-        boundingPoly: b.boundingPoly.map((v) => ({
-          x: v.x + offsetX,
-          y: v.y + offsetY,
-        })),
-      }));
+      const newBlocks: TextBlock[] = result.blocks.map((b, i) => {
+        const configFontSize = useAppConfigStore.getState().defaultFontSize;
+        const configFont = useAppConfigStore.getState().defaultFont;
+        return {
+          id: `ocr-${Date.now()}-${i}`,
+          type: b.type,
+          source: "ocr" as const,
+          originalText: b.text,
+          translatedText: "",
+          x: b.x + offsetX,
+          y: b.y + offsetY,
+          width: b.width,
+          height: b.height,
+          fontSize: configFontSize,
+          fontFamily: configFont,
+          boundingPoly: b.boundingPoly.map((v) => ({
+            x: v.x + offsetX,
+            y: v.y + offsetY,
+          })),
+        };
+      });
 
       addTextBlocks(activePage.id, newBlocks);
       if (!pendingSelection) {
@@ -1086,7 +1083,7 @@ function TextBlockSection({
   );
 }
 
-/* \u2500\u2500 Design Panel (Typography + Properties) \u2500\u2500 */
+// Design Panel (Typography + Properties)
 function DesignPanel() {
   const t = useTranslations("editor");
 
@@ -1097,6 +1094,17 @@ function DesignPanel() {
   );
   const updateTextBlock = useProjectStore((s) => s.updateTextBlock);
   const pushSnapshot = useHistoryStore((s) => s.pushSnapshot);
+
+  // AI / translation config
+  const aiProvider = useAppConfigStore((s) => s.aiProvider);
+  const aiModel = useAppConfigStore((s) => s.aiModel);
+  const apiKeys = useAppConfigStore((s) => s.apiKeys);
+  const targetLanguage = useAppConfigStore((s) => s.targetLanguage);
+  const localLlmUrl = useAppConfigStore((s) => s.localLlmUrl);
+  const localLlmModel = useAppConfigStore((s) => s.localLlmModel);
+  const replicateApiKey = useAppConfigStore((s) => s.replicateApiKey);
+
+  const [reTranslateLoading, setReTranslateLoading] = useState(false);
 
   // Gather all selected blocks (multi-select or single)
   const selectedBlocks = useMemo(() => {
@@ -1295,6 +1303,66 @@ function DesignPanel() {
     }
   }, [addCustomFont, trackFont, update, t]);
 
+  // Text content values (first selected block only)
+  const originalText = selectedBlock?.originalText ?? "";
+  const translatedText = selectedBlock?.translatedText ?? "";
+
+  // Re-translate the first selected block
+  const handleReTranslate = useCallback(async () => {
+    if (!selectedBlock || !pageId || reTranslateLoading) return;
+    if (!selectedBlock.originalText.trim()) {
+      toast.error(t("translateFailed"), { description: t("noTextToTranslate") });
+      return;
+    }
+    const effectiveModel = aiProvider === "local" ? localLlmModel : aiModel;
+    if (!effectiveModel) {
+      toast.error(t("translateFailed"), { description: t("noModelSelected") });
+      return;
+    }
+    if (aiProvider !== "local" && aiProvider !== "replicate" && !apiKeys[aiProvider]) {
+      toast.error(t("translateFailed"), { description: t("aiKeyRequired") });
+      return;
+    }
+    if (aiProvider === "replicate" && !replicateApiKey) {
+      toast.error(t("translateFailed"), { description: t("aiKeyRequired") });
+      return;
+    }
+
+    setReTranslateLoading(true);
+    try {
+      const results = await translateTextBlocks({
+        provider: aiProvider,
+        model: effectiveModel,
+        apiKey: aiProvider === "replicate" ? replicateApiKey : (apiKeys[aiProvider] ?? ""),
+        targetLanguage: targetLanguage || "English",
+        textBlocks: [{
+          id: selectedBlock.id,
+          originalText: selectedBlock.originalText,
+          type: selectedBlock.type,
+        }],
+        localEndpoint: aiProvider === "local" ? localLlmUrl : undefined,
+      });
+
+      const result = results.find((r) => r.id === selectedBlock.id);
+      if (result) {
+        pushSnap();
+        updateTextBlock(pageId, selectedBlock.id, {
+          translatedText: result.translatedText,
+          ...(result.type ? { type: result.type } : {}),
+        });
+        toast.success(t("translateCompleted"));
+      }
+    } catch (err) {
+      toast.error(t("translateFailed"), { description: String(err) });
+    } finally {
+      setReTranslateLoading(false);
+    }
+  }, [
+    selectedBlock, pageId, reTranslateLoading, aiProvider, aiModel,
+    localLlmModel, apiKeys, replicateApiKey, targetLanguage, localLlmUrl,
+    pushSnap, updateTextBlock, t,
+  ]);
+
   if (!selectedBlock) {
     return (
       <EmptyState
@@ -1454,8 +1522,12 @@ function DesignPanel() {
             min={6}
             max={200}
             value={fontSize}
-            onChange={(e) => updateLive({ fontSize: Math.max(6, Number(e.target.value) || 14) })}
-            onBlur={commitLive}
+            onChange={(e) => updateLive({ fontSize: Number(e.target.value) || 0 })}
+            onBlur={() => {
+              const clamped = Math.max(6, Math.min(200, fontSize));
+              if (clamped !== fontSize) updateLive({ fontSize: clamped });
+              commitLive();
+            }}
             className="h-8 border-outline-variant/25 bg-surface-variant/10 text-[12px] tabular-nums"
           />
         </FieldGroup>
@@ -1691,6 +1763,54 @@ function DesignPanel() {
           )}
         </div>
       </FieldGroup>
+
+      {/* ── Text Content ── */}
+      <div className="rounded-lg border border-outline-variant/20 bg-surface-variant/5 p-2.5">
+        <div className="mb-2 flex items-center justify-between">
+          <Label className="text-[10px] font-medium text-on-surface-variant/60">
+            {t("textContent")}
+          </Label>
+          <button
+            onClick={handleReTranslate}
+            disabled={reTranslateLoading || !originalText.trim()}
+            className="flex h-6 items-center gap-1 rounded-md border border-outline-variant/20 px-2 text-[10px] font-medium text-on-surface-variant/60 transition-colors hover:bg-surface-variant/20 hover:text-on-surface disabled:pointer-events-none disabled:opacity-40"
+          >
+            {reTranslateLoading
+              ? <CircleNotchIcon weight="bold" className="h-3 w-3 animate-spin" />
+              : <TranslateIcon weight="bold" className="h-3 w-3" />
+            }
+            {t("reTranslate")}
+          </button>
+        </div>
+        <div className="space-y-2">
+          <div className="space-y-1">
+            <Label className="text-[9px] font-medium text-on-surface-variant/40">
+              {t("originalText")}
+            </Label>
+            <Textarea
+              value={originalText}
+              onChange={(e) => updateLive({ originalText: e.target.value })}
+              onBlur={commitLive}
+              rows={3}
+              className="min-h-13 resize-y border-outline-variant/25 bg-surface-variant/10 text-[11px] leading-relaxed"
+              placeholder={t("originalText")}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[9px] font-medium text-on-surface-variant/40">
+              {t("translatedText")}
+            </Label>
+            <Textarea
+              value={translatedText}
+              onChange={(e) => updateLive({ translatedText: e.target.value })}
+              onBlur={commitLive}
+              rows={3}
+              className="min-h-13 resize-y border-outline-variant/25 bg-surface-variant/10 text-[11px] leading-relaxed"
+              placeholder={t("translatedText")}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -575,6 +575,7 @@ export function KonvaStage({
         if (w > 10 && h > 10 && activePage?.id) {
           pushCurrentSnapshot();
           const newId = generateId("text");
+          const { defaultFont, defaultFontSize } = useAppConfigStore.getState();
           addTextBlocks(activePage.id, [{
             id: newId,
             type: "speech",
@@ -585,7 +586,8 @@ export function KonvaStage({
             y,
             width: w,
             height: h,
-            fontSize: 14,
+            fontSize: defaultFontSize,
+            fontFamily: defaultFont,
           }]);
           selectBlock(newId);
         }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useTheme } from "next-themes";
 import {
   SunIcon,
@@ -16,6 +16,9 @@ import {
   TrashIcon,
   ScanIcon,
   CheckIcon,
+  PlusIcon,
+  TrashSimpleIcon,
+  EyeIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +28,9 @@ import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -38,10 +43,13 @@ import {
   validateLocalEndpoint,
 } from "@/lib/ai-validator";
 import { ACCENT_COLORS } from "@/lib/theme-colors";
+import { MANGA_FONTS, DEFAULT_FONT } from "@/lib/manga-fonts";
+import { useCustomFontsStore, registerFontFace, parseFontName, type CustomFont } from "@/stores/custom-fonts-store";
+import { useRecentFontsStore } from "@/stores/recent-fonts-store";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
-type SettingsTab = "appearance" | "ai" | "watermark";
+type SettingsTab = "appearance" | "ai" | "display";
 
 /* ── Reusable layout primitives ──────────────────────────────────── */
 
@@ -106,7 +114,7 @@ export function SettingsView() {
   const tabs: { value: SettingsTab; icon: React.ElementType; label: string }[] = [
     { value: "appearance", icon: PaletteIcon, label: t("appearance") },
     { value: "ai", icon: OpenAiLogoIcon, label: t("modelConfig") },
-    { value: "watermark", icon: DropIcon, label: t("watermark") },
+    { value: "display", icon: EyeIcon, label: t("display") },
   ];
 
   return (
@@ -133,7 +141,7 @@ export function SettingsView() {
       <div className="max-w-2xl space-y-5">
         {activeTab === "appearance" && <AppearanceSection />}
         {activeTab === "ai" && <AIConfigSection />}
-        {activeTab === "watermark" && <WatermarkSection />}
+        {activeTab === "display" && <DisplaySection />}
       </div>
     </div>
   );
@@ -778,6 +786,226 @@ function AIConfigSection() {
           </SettingRow>
         )}
       </SettingsCard>
+    </>
+  );
+}
+
+/* =================================================================
+   Display Section (Default Font + Watermark)
+   ================================================================= */
+function DisplaySection() {
+  const t = useTranslations("settings");
+  const defaultFont = useAppConfigStore((s) => s.defaultFont);
+  const defaultFontSize = useAppConfigStore((s) => s.defaultFontSize);
+  const setDefaultFont = useAppConfigStore((s) => s.setDefaultFont);
+  const setDefaultFontSize = useAppConfigStore((s) => s.setDefaultFontSize);
+
+  // Draft state for font size input (avoids mid-type clamping)
+  const [draftFontSize, setDraftFontSize] = useState(String(defaultFontSize));
+
+  // Custom fonts
+  const customFonts = useCustomFontsStore((s) => s.fonts);
+  const addCustomFont = useCustomFontsStore((s) => s.addFont);
+  const removeCustomFont = useCustomFontsStore((s) => s.removeFont);
+  const fontInputRef = useRef<HTMLInputElement>(null);
+  const recentFonts = useRecentFontsStore((s) => s.recentFonts);
+  const trackFont = useRecentFontsStore((s) => s.trackFont);
+
+  // All known fonts
+  const allFonts = useMemo(
+    () => [
+      ...MANGA_FONTS,
+      ...customFonts.map((f) => ({ label: f.label, value: f.value, category: "custom" as const })),
+    ],
+    [customFonts]
+  );
+
+  const recentFontEntries = useMemo(
+    () => recentFonts
+      .map((v) => allFonts.find((f) => f.value === v))
+      .filter((f): f is NonNullable<typeof f> => !!f),
+    [recentFonts, allFonts]
+  );
+
+  const recentSet = useMemo(() => new Set(recentFonts), [recentFonts]);
+  const customFontEntries = customFonts.filter((f) => !recentSet.has(f.value));
+  const comicFonts = MANGA_FONTS.filter((f) => f.category === "comic" && !recentSet.has(f.value));
+  const handFonts = MANGA_FONTS.filter((f) => f.category === "handwriting" && !recentSet.has(f.value));
+  const jpFonts = MANGA_FONTS.filter((f) => f.category === "japanese" && !recentSet.has(f.value));
+  const cnFonts = MANGA_FONTS.filter((f) => f.category === "chinese" && !recentSet.has(f.value));
+  const krFonts = MANGA_FONTS.filter((f) => f.category === "korean" && !recentSet.has(f.value));
+  const sysFonts = MANGA_FONTS.filter((f) => f.category === "system" && !recentSet.has(f.value));
+
+  /** Handle custom font file import */
+  const handleFontImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      toast.error(t("fontTooLarge"));
+      return;
+    }
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["ttf", "otf", "woff", "woff2"].includes(ext ?? "")) {
+      toast.error(t("fontInvalidFormat"));
+      return;
+    }
+
+    try {
+      const label = parseFontName(file.name);
+      const value = `Custom-${label}`;
+
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const font: CustomFont = {
+        label,
+        value,
+        dataUrl,
+        fileName: file.name,
+        addedAt: Date.now(),
+      };
+
+      await registerFontFace(font);
+      addCustomFont(font);
+      trackFont(value);
+      setDefaultFont(value);
+      toast.success(t("fontImported", { name: label }));
+    } catch {
+      toast.error(t("fontImportFailed"));
+    }
+  }, [addCustomFont, trackFont, setDefaultFont, t]);
+
+  return (
+    <>
+      {/* Default Font */}
+      <SettingsCard title={t("defaultFont")} description={t("defaultFontDesc")}>
+        <SettingRow label={t("fontFamily")} vertical>
+          <div className="flex items-center gap-2 max-w-sm">
+            <Select
+              value={defaultFont}
+              onValueChange={(v) => { trackFont(v); setDefaultFont(v); }}
+            >
+              <SelectTrigger className="h-9 flex-1 border-outline-variant/25 bg-surface-variant/10 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {recentFontEntries.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] text-on-surface-variant/40">★ Recent</SelectLabel>
+                    {recentFontEntries.map((f) => (
+                      <SelectItem key={`recent-${f.value}`} value={f.value} style={{ fontFamily: f.value }}>
+                        {f.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                {customFontEntries.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] text-on-surface-variant/40">{t("customFonts")}</SelectLabel>
+                    {customFontEntries.map((f) => (
+                      <SelectItem key={`custom-${f.value}`} value={f.value} style={{ fontFamily: f.value }}>
+                        <span className="flex items-center gap-1.5">
+                          {f.label}
+                          <button
+                            className="ml-auto inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-on-surface-variant/40 hover:text-error"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              removeCustomFont(f.value);
+                              if (defaultFont === f.value) setDefaultFont(DEFAULT_FONT);
+                              toast.success(t("fontRemoved", { name: f.label }));
+                            }}
+                          >
+                            <TrashSimpleIcon weight="bold" className="h-3 w-3" />
+                          </button>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-on-surface-variant/40">Comic</SelectLabel>
+                  {comicFonts.map((f) => (
+                    <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-on-surface-variant/40">Handwriting</SelectLabel>
+                  {handFonts.map((f) => (
+                    <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-on-surface-variant/40">Japanese</SelectLabel>
+                  {jpFonts.map((f) => (
+                    <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-on-surface-variant/40">Chinese</SelectLabel>
+                  {cnFonts.map((f) => (
+                    <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-on-surface-variant/40">Korean</SelectLabel>
+                  {krFonts.map((f) => (
+                    <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-on-surface-variant/40">System</SelectLabel>
+                  {sysFonts.map((f) => (
+                    <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <input
+              ref={fontInputRef}
+              type="file"
+              accept=".ttf,.otf,.woff,.woff2"
+              className="hidden"
+              onChange={handleFontImport}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 w-9 shrink-0 p-0"
+              onClick={() => fontInputRef.current?.click()}
+              title={t("importFont")}
+            >
+              <PlusIcon weight="bold" className="h-4 w-4" />
+            </Button>
+          </div>
+        </SettingRow>
+
+        <SettingRow label={t("fontSize")}>
+          <Input
+            type="number"
+            min={6}
+            max={200}
+            value={draftFontSize}
+            onChange={(e) => setDraftFontSize(e.target.value)}
+            onBlur={() => {
+              const n = Math.max(6, Math.min(200, Number(draftFontSize) || 20));
+              setDraftFontSize(String(n));
+              setDefaultFontSize(n);
+            }}
+            className="h-9 w-24 border-outline-variant/25 bg-surface-variant/10 text-sm tabular-nums max-w-sm"
+          />
+        </SettingRow>
+      </SettingsCard>
+
+      {/* Watermark */}
+      <WatermarkSection />
     </>
   );
 }

@@ -35,6 +35,10 @@ interface AppConfigState {
   localLlmUrl: string;
   localLlmModel: string;
   watermark: WatermarkConfig;
+  /** Default font family for new text blocks. */
+  defaultFont: string;
+  /** Default font size for new text blocks. */
+  defaultFontSize: number;
 }
 
 interface AppConfigActions {
@@ -67,6 +71,8 @@ interface AppConfigActions {
     model: string
   ) => Promise<{ success: boolean; error?: string }>;
   setWatermark: (watermark: Partial<WatermarkConfig>) => void;
+  setDefaultFont: (font: string) => void;
+  setDefaultFontSize: (size: number) => void;
 }
 
 export type AppConfigStore = AppConfigState & AppConfigActions;
@@ -95,6 +101,8 @@ export const useAppConfigStore = create<AppConfigStore>()(
         size: "default",
         opacity: 0.7,
       },
+      defaultFont: "Comic Neue",
+      defaultFontSize: 20,
 
       // Actions
       setTheme: (partial) =>
@@ -158,6 +166,10 @@ export const useAppConfigStore = create<AppConfigStore>()(
 
       setWatermark: (partial) =>
         set((s) => ({ watermark: { ...s.watermark, ...partial } })),
+
+      setDefaultFont: (font) => set({ defaultFont: font }),
+
+      setDefaultFontSize: (size) => set({ defaultFontSize: size }),
     }),
     {
       name: "komaflip-app-config",
