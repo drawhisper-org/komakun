@@ -15,6 +15,7 @@ import {
   CaretDownIcon,
   PlusIcon,
   SlidersHorizontalIcon,
+  ArrowsInSimpleIcon,
 } from "@phosphor-icons/react";
 import {
   DndContext,
@@ -37,9 +38,10 @@ import { useLayerVisibilityStore, type LayerKey } from "@/stores/layer-visibilit
 interface EditorLeftSidebarProps {
   projectId: string;
   onManagePages: () => void;
+  onCollapse: () => void;
 }
 
-export function EditorLeftSidebar({ projectId, onManagePages }: EditorLeftSidebarProps) {
+export function EditorLeftSidebar({ projectId, onManagePages, onCollapse }: EditorLeftSidebarProps) {
   const t = useTranslations("editor");
   const router = useRouter();
   const projectName = useProjectStore((s) => s.projectName);
@@ -179,9 +181,18 @@ export function EditorLeftSidebar({ projectId, onManagePages }: EditorLeftSideba
         {layersOpen && <LayersPanel />}
       </div>
 
-      {/* Page count footer */}
-      <div className="shrink-0 border-t border-outline-variant/15 px-3 py-1.5 text-[10px] text-on-surface-variant/40">
-        {t("pagesCount", { count: pages.length })}
+      {/* Page count footer + collapse */}
+      <div className="flex shrink-0 items-center border-t border-outline-variant/15 px-3 py-1.5">
+        <span className="flex-1 text-[10px] text-on-surface-variant/40">
+          {t("pagesCount", { count: pages.length })}
+        </span>
+        <button
+          onClick={onCollapse}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-on-surface-variant/40 transition-colors hover:bg-surface-variant/30 hover:text-on-surface"
+          title="Collapse sidebar"
+        >
+          <ArrowsInSimpleIcon weight="bold" className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {/* Hidden file input */}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { StackIcon } from "@phosphor-icons/react";
 import { EditorLeftSidebar } from "@/components/editor/editor-left-sidebar";
 import { EditorRightSidebar } from "@/components/editor/editor-right-sidebar";
 import { EditorCanvas } from "@/components/editor/editor-canvas";
@@ -19,6 +20,7 @@ export function EditorLayout({ projectId }: EditorLayoutProps) {
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 });
   const [fitSignal, setFitSignal] = useState(0);
   const [brushSize, setBrushSize] = useState(20);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
 
   // Hydrate custom fonts from IDB on mount
   useEffect(() => { hydrateCustomFonts(); }, []);
@@ -43,11 +45,14 @@ export function EditorLayout({ projectId }: EditorLayoutProps) {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
-      {/* Left sidebar — sticky, not floating */}
-      <EditorLeftSidebar
-        projectId={projectId}
-        onManagePages={() => setManagingPages(true)}
-      />
+      {/* Left sidebar — collapsible */}
+      {leftSidebarOpen && (
+        <EditorLeftSidebar
+          projectId={projectId}
+          onManagePages={() => setManagingPages(true)}
+          onCollapse={() => setLeftSidebarOpen(false)}
+        />
+      )}
 
       {/* Center — canvas or manage-pages view + bottom toolbar */}
       <div className="relative flex-1">
@@ -72,6 +77,16 @@ export function EditorLayout({ projectId }: EditorLayoutProps) {
               brushSize={brushSize}
               onBrushSizeChange={setBrushSize}
             />
+
+            {/* Expand sidebar button — shown when left sidebar is collapsed */}
+            {!leftSidebarOpen && (
+              <button
+                onClick={() => setLeftSidebarOpen(true)}
+                className="absolute bottom-4 left-4 z-20 flex h-7 w-7 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface/90 text-on-surface-variant shadow-2xl backdrop-blur-xl transition-colors hover:bg-surface-variant/30 hover:text-on-surface"
+              >
+                <StackIcon weight="fill" className="h-3 w-3" />
+              </button>
+            )}
           </>
         )}
       </div>
